@@ -9,6 +9,22 @@ import (
 	"github.com/trivago/tgo/tcontainer"
 )
 
+func truncate(logs []string, maxSize int) string {
+	// Join the logs with newlines. Use the first N-th logs that total < `maxSize` bytes.
+	totalSize := 0
+	for maxIdx := 0; maxIdx < len(logs); maxIdx++ {
+		if totalSize+len(logs[maxIdx])+1 > maxSize {
+			return fmt.Sprintf("%s\n%s",
+				"Test logs truncated for jira filing purposes:",
+				strings.Join(logs[:maxIdx], "\n"))
+		}
+
+		totalSize += len(logs[maxIdx]) + 1
+	}
+
+	return strings.Join(logs, "\n")
+}
+
 func CreateNewTicketsFromFailure(runFailure Failure, jiraUsername, jiraToken string, fileTickets bool) []*jira.Issue {
 	ret := make([]*jira.Issue, 0)
 
@@ -55,7 +71,11 @@ func CreateNewTicketsFromFailure(runFailure Failure, jiraUsername, jiraToken str
 					"Logs:\n\n{noformat}\n%v\n{noformat}\n\n",
 					runFailure.GithubLink,
 					assertionMsg,
-					strings.Join(artifacts.Logs[fqTest], "\n")),
+					// Jira errors if the description is too long:
+					// "errors":{
+					//   "description":"The entered text is too long. It exceeds the allowed limit of 32,767 characters."
+					// }
+					truncate(artifacts.Logs[fqTest], 30000)),
 				Labels: []string{"flaky_test"},
 				Unknowns: tcontainer.MarshalMap(map[string]interface{}{
 					"customfield_10074": []map[string]string{
@@ -72,10 +92,10 @@ func CreateNewTicketsFromFailure(runFailure Failure, jiraUsername, jiraToken str
 
 		filed, resp, err := jiraClient.Issue.Create(ticket)
 		if err != nil {
-			fmt.Println(resp.Header)
+			fmt.Println("Header:", resp.Header)
 			msg, err2 := io.ReadAll(resp.Body)
-			fmt.Println(string(msg))
-			fmt.Println(err2)
+			fmt.Println("Msg:", string(msg))
+			fmt.Println("Reading err?", err2)
 			panic(err)
 		}
 		ticket.Key = filed.Key

@@ -10,6 +10,7 @@ import (
 )
 
 var openIndenters = 0
+var overrideIndenter = true
 
 type Indenter struct {
 	prefix    string
@@ -21,6 +22,10 @@ type Indenter struct {
 }
 
 func NewIndenter() io.Closer {
+	if overrideIndenter {
+		return &Indenter{}
+	}
+
 	openIndenters += 1
 	var err error
 	ret := &Indenter{prefix: strings.Repeat("  ", openIndenters)}
@@ -40,6 +45,10 @@ func NewIndenter() io.Closer {
 }
 
 func (indenter *Indenter) Close() error {
+	if overrideIndenter {
+		return nil
+	}
+
 	openIndenters -= 1
 
 	os.Stdout = indenter.oldStdout
