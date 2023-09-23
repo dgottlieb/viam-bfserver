@@ -294,6 +294,6 @@ func analyze() {
 	for _, failure := range failures {
 		fmt.Printf("  %v\n", failure.Variant)
 		fmt.Println("  ---------------------------")
-		failure.Output.ThingsThatFailed("  ")
+		failure.Output.ThingsThatFailed("  ", failure.GitHash)
 	}
 }

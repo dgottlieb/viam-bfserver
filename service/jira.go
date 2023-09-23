@@ -46,9 +46,12 @@ func CreateNewTicketsFromFailure(runFailure Failure, jiraUsername, jiraToken str
 
 		var summary string
 		var assertionMsg string
+		var assertionCodeLink string
 		if assertions := artifacts.Assertions[fqTest]; len(assertions) > 0 {
 			summary = fmt.Sprintf("Test Failure: %v", fqTest)
 			assertionMsg = assertions[0].ToPrettyString("")
+			assertionCodeLink = assertions[0].GetAssertionCodeLinkWithText(
+				" (Code Link)", runFailure.GitHash)
 		} else if timeout := artifacts.Timeouts[fqTest]; timeout != nil {
 			summary = fmt.Sprintf("Test Timeout: %v", fqTest)
 			assertionMsg = timeout.LogLines[0]
@@ -67,10 +70,11 @@ func CreateNewTicketsFromFailure(runFailure Failure, jiraUsername, jiraToken str
 				},
 				Summary: summary,
 				Description: fmt.Sprintf("[Github Run|%v]\n\n"+
-					"Assertion:\n\n{noformat}\n%v\n{noformat}\n\n"+
+					"Assertion%s:\n\n{noformat}\n%v\n{noformat}\n\n"+
 					"Logs:\n\n{noformat}\n%v\n{noformat}\n\n",
 					runFailure.GithubLink,
 					assertionMsg,
+					assertionCodeLink,
 					// Jira errors if the description is too long:
 					// "errors":{
 					//   "description":"The entered text is too long. It exceeds the allowed limit of 32,767 characters."

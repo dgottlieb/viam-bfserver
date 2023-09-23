@@ -167,10 +167,12 @@ func (output Output) PrettyPrint(indent string) {
 	}
 }
 
-func (output Output) ThingsThatFailed(indent string) {
+func (output Output) ThingsThatFailed(indent, gitHash string) {
 	for test, assertions := range output.Assertions {
 		for _, assertion := range assertions {
 			fmt.Printf("%sFailed: %v (%v:%d)\n", indent, test, assertion.File, assertion.Line)
+			fmt.Printf("%s%sCode link: %s\n",
+				indent, "  ", assertion.GetAssertionCodeLink(gitHash))
 		}
 	}
 
@@ -217,6 +219,19 @@ func (failure AssertionFailure) ToPrettyString(indent string) string {
 			indent, failure.Expected,
 			indent, strings.TrimSpace(failure.Actual))
 	}
+}
+
+func (failure AssertionFailure) GetAssertionCodeLink(gitHash string) string {
+	testPkg, found := strings.CutPrefix(failure.Package, "go.viam.com/rdk/")
+	if !found {
+		return ""
+	}
+
+	return fmt.Sprintf("https://github.com/viamrobotics/rdk/blob/%s/%s/%s#L%d", gitHash, testPkg, failure.File, failure.Line)
+}
+
+func (failure AssertionFailure) GetAssertionCodeLinkWithText(linkText, gitHash string) string {
+	return fmt.Sprintf("[%s|%s]", linkText, failure.GetAssertionCodeLink(gitHash))
 }
 
 type DataraceFailure struct {
@@ -519,6 +534,7 @@ func fetchAndParseFailures(ctx context.Context, client *github.Client, zippedLog
 type Failure struct {
 	Variant    string // `arm64` or `amd64`
 	GithubLink string
+	GitHash    string
 	Output     *Output
 }
 
@@ -542,6 +558,8 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, j
 		amd bool
 		arm bool
 	}
+	var gitHash string
+
 	// Job names of interest:
 	//   test / Build and Test (buildjet-8vcpu-ubuntu-2204, ghcr.io/viamrobotics/canon:amd64-cache, linux/amd64, ...
 	//   test / Build and Test (buildjet-8vcpu-ubuntu-2204-arm, ghcr.io/viamrobotics/canon:arm64-cache, linux/arm...
@@ -559,6 +577,7 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, j
 			continue
 		}
 
+		gitHash = job.GetHeadSHA()
 		switch {
 		case strings.Contains(job.GetName(), "amd64"):
 			jobIds.amd = job.GetID()
@@ -602,7 +621,7 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, j
 		}
 		if !output.IsSuccess() {
 			jobLink := fmt.Sprintf("https://github.com/viamrobotics/rdk/actions/runs/%v/job/%v", runId, jobIds.amd)
-			ret = append(ret, Failure{"amd64", jobLink, output})
+			ret = append(ret, Failure{"amd64", jobLink, gitHash, output})
 		}
 		ind.Close()
 	}
@@ -619,7 +638,7 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, j
 		if !output.IsSuccess() {
 			// See above
 			jobLink := fmt.Sprintf("https://github.com/viamrobotics/rdk/actions/runs/%v/job/%v", runId, jobIds.arm)
-			ret = append(ret, Failure{"arm64", jobLink, output})
+			ret = append(ret, Failure{"arm64", jobLink, gitHash, output})
 		}
 		ind.Close()
 	}
