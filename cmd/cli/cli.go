@@ -29,8 +29,6 @@ func main() {
 		discover()
 	case "list":
 		list()
-	case "test":
-		test()
 	default:
 		fmt.Printf("Unknown command: `%v`\n", os.Args[1])
 		fmt.Println("Usage:\n\tbfserver discover\n\tbfserver analyze")
@@ -38,19 +36,6 @@ func main() {
 	}
 
 	fmt.Println("Github Rate:", service.GithubRate())
-}
-
-func test() {
-	args := util.ParseProgramArgs()
-	ticket := "RSDK-5192"
-
-	jiraClient := args.GetJiraClient()
-	links, _, err := jiraClient.Issue.GetRemoteLinks(ticket)
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Printf("Links: %#v\n", links)
 }
 
 func discover() {
@@ -115,7 +100,7 @@ func discover() {
 			tickets := service.CreateTicketObjectsFromFailure(failure)
 			fmt.Printf("NumTickets: %v\n", len(tickets))
 			if arg.FileTickets {
-				err = service.PushTickets(tickets, openIssues, arg.JiraUsername, arg.JiraToken)
+				err = service.PushTickets(tickets, openIssues, run.GetHTMLURL(), arg.JiraUsername, arg.JiraToken)
 				if err != nil {
 					panic(err)
 				}

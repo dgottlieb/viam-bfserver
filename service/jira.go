@@ -27,7 +27,7 @@ func truncate(logs []string, maxSize int) string {
 }
 
 // `newTickets` input is modified in place with the `Issue.Key` value from the jira API response.
-func PushTickets(newTickets []*jira.Issue, existingTickets []jira.Issue, jiraUsername, jiraToken string) error {
+func PushTickets(newTickets []*jira.Issue, existingTickets []jira.Issue, githubRunUrl, jiraUsername, jiraToken string) error {
 	tp := jira.BasicAuthTransport{
 		Username: jiraUsername,
 		Password: jiraToken,
@@ -48,6 +48,12 @@ func PushTickets(newTickets []*jira.Issue, existingTickets []jira.Issue, jiraUse
 	for _, ticket := range newTickets {
 		if name := exists(ticket); name != "" {
 			fmt.Println("Failure exists.\n\tTicket:", ticket.Key, "\n\tSummary:", ticket.Fields.Summary)
+			jiraClient.Issue.AddRemoteLink(name, &jira.RemoteLink{
+				Object: &jira.RemoteLinkObject{
+					URL:   githubRunUrl,
+					Title: "Failure run",
+				}})
+
 			continue
 		}
 
