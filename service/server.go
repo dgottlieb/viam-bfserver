@@ -90,7 +90,7 @@ func FindFailingRuns(ctx context.Context, client *github.Client, startDate, endD
 
 	// Github pagination starts at Page 1.
 	for _, workflow := range []WID{
-		// WID{"Build and Publish Latest", 17922513, true},
+		WID{"Build and Publish Latest", 17922513, true},
 		WID{"Docker", 6417489, false},
 		WID{"Build and Publish RC", 56639284, false},
 	} {
