@@ -21,14 +21,14 @@ type Indenter struct {
 	threadActive sync.WaitGroup
 }
 
-func NewIndenter() io.Closer {
+func NewIndenterWithPrefix(prefix string) io.Closer {
 	if overrideIndenter {
 		return &Indenter{}
 	}
 
 	openIndenters += 1
 	var err error
-	ret := &Indenter{prefix: strings.Repeat("  ", openIndenters)}
+	ret := &Indenter{prefix: prefix}
 
 	ret.reader, ret.newStdout, err = os.Pipe()
 	if err != nil {
@@ -42,6 +42,10 @@ func NewIndenter() io.Closer {
 	go ret.start()
 
 	return ret
+}
+
+func NewIndenter() io.Closer {
+	return NewIndenterWithPrefix(strings.Repeat("  ", openIndenters))
 }
 
 func (indenter *Indenter) Close() error {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/go-github/v53/github"
 	"github.com/viamrobotics/bfserver/service"
+	"github.com/viamrobotics/bfserver/util"
 )
 
 func main() {
@@ -27,6 +28,8 @@ func main() {
 		analyze()
 	case "discover":
 		discover()
+	case "list":
+		list()
 	default:
 		fmt.Printf("Unknown command: `%v`\n", os.Args[1])
 		fmt.Println("Usage:\n\tbfserver discover\n\tbfserver analyze")
@@ -121,6 +124,9 @@ func discover() {
 		panic(err)
 	}
 
+	// For deduping.
+	openIssues := service.GetOpenFlakeyFailureTickets(jiraUsername, jiraToken)
+
 	for _, run := range runs {
 		if inSeenCache(*run.ID) {
 			if handRun == false {
@@ -143,8 +149,15 @@ func discover() {
 		for _, failure := range failures {
 			fmt.Printf("Failure: %v Link: %v\n", failure.Variant, failure.GithubLink)
 			i2 := service.NewIndenter()
-			tickets := service.CreateNewTicketsFromFailure(failure, jiraUsername, jiraToken, fileTickets)
+			tickets := service.CreateTicketObjectsFromFailure(failure)
 			fmt.Printf("NumTickets: %v\n", len(tickets))
+			if fileTickets {
+				err = service.PushTickets(tickets, openIssues, jiraUsername, jiraToken)
+				if err != nil {
+					panic(err)
+				}
+			}
+
 			for idx, ticket := range tickets {
 				if fileTickets {
 					fmt.Println("Ticket:", ticket.Key)
@@ -217,8 +230,8 @@ func writeSeenCache(runId int64) {
 	cacheFile.WriteString(fmt.Sprintf("%v\n", runId))
 }
 
-func analyze() {
-	var githubToken string
+func list() {
+	var jiraUsername, jiraToken string
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		panic(err)
@@ -240,39 +253,53 @@ func analyze() {
 		}
 
 		switch key {
-		case "github_api_token":
-			githubToken = value
+		case "jira_username":
+			jiraUsername = value
+		case "jira_api_token":
+			jiraToken = value
 		}
 	}
+	tickets := service.GetOpenFlakeyFailureTickets(jiraUsername, jiraToken)
+
+	for _, issue := range tickets {
+		desc := issue.Fields.Description
+		if len(desc) > 1000 {
+			desc = fmt.Sprintf("%v...", desc[:1000])
+		}
+		fmt.Println("Issue:", issue.Key)
+		fmt.Println("Summary:", issue.Fields.Summary)
+		fmt.Println("Description:")
+		i1 := service.NewIndenterWithPrefix("\t")
+		fmt.Println(desc)
+		i1.Close()
+	}
+}
+
+func analyze() {
+	args := util.ParseProgramArgs()
 
 	ctx := context.Background()
-	client := github.NewTokenClient(ctx, githubToken)
-
-	isJob := flag.Bool("job", true, "Parse the specific job from a github CI link.")
-	isRun := flag.Bool("run", false, "Parse the run from a github CI link and output failures from all testing jobs.")
-	flag.BoolVar(&service.GDebug, "debug", false, "debug mode")
-	flag.Parse()
-	url := flag.Arg(flag.NArg() - 1)
+	client := github.NewTokenClient(ctx, args.GithubToken)
 
 	// Example url: https://github.com/viamrobotics/rdk/actions/runs/5859328480/job/15885094207
 	runJobRe := regexp.MustCompile(`/actions/runs/(\d+)/job/(\d+)`)
-	matches := runJobRe.FindStringSubmatch(url)
+	matches := runJobRe.FindStringSubmatch(args.Url)
 
 	runId, err := strconv.ParseInt(matches[1], 10, 64)
 	if err != nil {
-		fmt.Println("Error parsing the run id from the link:", url)
+		fmt.Println("Error parsing the run id from the link:", args.Url)
 		panic(err)
 	}
 	jobId, err := strconv.ParseInt(matches[2], 10, 64)
 	if err != nil {
-		fmt.Println("Error parsing the job id from the link:", url)
+		fmt.Println("Error parsing the job id from the link:", args.Url)
 		panic(err)
 	}
 
 	var failures []service.Failure
-	if *isJob {
+	if args.IsJob {
 		failures, err = service.GithubRunToFailedTests(ctx, client, runId, jobId)
-	} else if *isRun {
+	} else if args.IsRun {
 		// Passing zero gets failures for all jobs in the run
 		allJobs := int64(0)
 		failures, err = service.GithubRunToFailedTests(ctx, client, runId, allJobs)
@@ -295,5 +322,16 @@ func analyze() {
 		fmt.Printf("  %v\n", failure.Variant)
 		fmt.Println("  ---------------------------")
 		failure.Output.ThingsThatFailed("  ", failure.GitHash)
+	}
+
+	fmt.Println("Deduping\n---------------------------")
+	if args.Dedup {
+		fmt.Println("All failures:", failures)
+		for _, failure := range failures {
+			fmt.Println("Test failures:", failure.Output.TestFailures)
+			for _, fqTest := range failure.Output.TestFailures {
+				service.RunDedup(failure, fqTest, service.GetOpenFlakeyFailureTickets(args.JiraUsername, args.JiraToken))
+			}
+		}
 	}
 }

@@ -25,16 +25,48 @@ func truncate(logs []string, maxSize int) string {
 	return strings.Join(logs, "\n")
 }
 
-func CreateNewTicketsFromFailure(runFailure Failure, jiraUsername, jiraToken string, fileTickets bool) []*jira.Issue {
-	ret := make([]*jira.Issue, 0)
-
+// `newTickets` input is modified in place with the `Issue.Key` value from the jira API response.
+func PushTickets(newTickets []*jira.Issue, existingTickets []jira.Issue, jiraUsername, jiraToken string) error {
 	tp := jira.BasicAuthTransport{
 		Username: jiraUsername,
 		Password: jiraToken,
 	}
+	jiraClient, _ := jira.NewClient(tp.Client(), "https://viam.atlassian.net/")
+
+	// Returns non-empty ticket on match. E.g: `RSDK-5192`.
+	exists := func(failure *jira.Issue) string {
+		for _, existingTicket := range existingTickets {
+			if failure.Fields.Summary == existingTicket.Fields.Summary {
+				return existingTicket.Key
+			}
+		}
+
+		return ""
+	}
+
+	for _, ticket := range newTickets {
+		if name := exists(ticket); name != "" {
+			fmt.Println("Failure exists.\n\tTicket:", ticket.Key, "\n\tSummary:", ticket.Fields.Summary)
+		}
+
+		filed, resp, err := jiraClient.Issue.Create(ticket)
+		if err != nil {
+			fmt.Println("Header:", resp.Header)
+			msg, err2 := io.ReadAll(resp.Body)
+			fmt.Println("Msg:", string(msg))
+			fmt.Println("Reading err?", err2)
+			panic(err)
+		}
+		ticket.Key = filed.Key
+	}
+
+	return nil
+}
+
+func CreateTicketObjectsFromFailure(runFailure Failure) []*jira.Issue {
+	ret := make([]*jira.Issue, 0)
 
 	artifacts := runFailure.Output
-	jiraClient, _ := jira.NewClient(tp.Client(), "https://viam.atlassian.net/")
 	for _, fqTest := range artifacts.TestFailures {
 		fmt.Println("Test:", fqTest, "NumLogs:", len(artifacts.Logs[fqTest]))
 		if len(artifacts.Logs[fqTest]) == 0 {
@@ -58,6 +90,8 @@ func CreateNewTicketsFromFailure(runFailure Failure, jiraUsername, jiraToken str
 		} else if datarace := artifacts.Dataraces[fqTest]; datarace != nil {
 			summary = fmt.Sprintf("Test Datarace: %v", fqTest)
 			assertionMsg = datarace.LogLines[0]
+		} else {
+			panic("Unknown")
 		}
 
 		ticket := &jira.Issue{
@@ -73,8 +107,8 @@ func CreateNewTicketsFromFailure(runFailure Failure, jiraUsername, jiraToken str
 					"Assertion%s:\n\n{noformat}\n%v\n{noformat}\n\n"+
 					"Logs:\n\n{noformat}\n%v\n{noformat}\n\n",
 					runFailure.GithubLink,
-					assertionMsg,
 					assertionCodeLink,
+					assertionMsg,
 					// Jira errors if the description is too long:
 					// "errors":{
 					//   "description":"The entered text is too long. It exceeds the allowed limit of 32,767 characters."
@@ -90,19 +124,31 @@ func CreateNewTicketsFromFailure(runFailure Failure, jiraUsername, jiraToken str
 		}
 
 		ret = append(ret, ticket)
-		if !fileTickets {
-			continue
-		}
+	}
 
-		filed, resp, err := jiraClient.Issue.Create(ticket)
-		if err != nil {
-			fmt.Println("Header:", resp.Header)
-			msg, err2 := io.ReadAll(resp.Body)
-			fmt.Println("Msg:", string(msg))
-			fmt.Println("Reading err?", err2)
-			panic(err)
-		}
-		ticket.Key = filed.Key
+	return ret
+}
+
+func GetOpenFlakeyFailureTickets(jiraUsername, jiraToken string) []jira.Issue {
+	tp := jira.BasicAuthTransport{
+		Username: jiraUsername,
+		Password: jiraToken,
+	}
+
+	jiraClient, _ := jira.NewClient(tp.Client(), "https://viam.atlassian.net/")
+	const flakeyTestFilterId = 10151
+	filter, _, err := jiraClient.Filter.Get(flakeyTestFilterId)
+	if err != nil {
+		panic(err)
+	}
+
+	ret, _, err := jiraClient.Issue.Search(filter.Jql, &jira.SearchOptions{
+		StartAt:    0,
+		MaxResults: 1000,
+		Expand:     "",
+	})
+	if err != nil {
+		panic(err)
 	}
 
 	return ret
