@@ -70,40 +70,70 @@ func FindFailingRuns(ctx context.Context, client *github.Client, startDate, endD
 	 * - Bump remote-control Version - 60514228
 	 */
 	listOptions := github.ListWorkflowRunsOptions{
-		Branch: "main",
-		// ExcludePullRequests: true,
+		Branch:              "main",
+		ExcludePullRequests: true,
 		// `Created` range query syntax:
 		// https://docs.github.com/en/search-github/getting-started-with-searching-on-github/understanding-the-search-syntax#query-for-dates
-		Created:             fmt.Sprintf("%v..%v", startDate, endDate),
-		ExcludePullRequests: true,
-		Event:               "push",
-		Status:              "completed",
+		Created: fmt.Sprintf("%v..%v", startDate, endDate),
+		Event:   "push",
+		Status:  "completed",
 		ListOptions: github.ListOptions{
 			PerPage: 100,
 		},
 	}
 
+	// Build and Publish Latest -- 17922513
+	const pushToMainWorkflowId int64 = 17922513
+	// Docker - 6417489
+	const dockerWorkflowId int64 = 6417489
+
 	ret := []*github.WorkflowRun{}
+	type WID struct {
+		name string
+		id   int64
+
+		onlyPush bool
+	}
+
 	// Github pagination starts at Page 1.
-	for page := 1; true; page++ {
-		listOptions.Page = page
-
-		// Build and Publish Latest -- 17922513
-		const testWorkflowId int64 = 17922513
-		workflowRuns, response, err := service.ListWorkflowRunsByID(ctx, "viamrobotics", "rdk", testWorkflowId, &listOptions)
-		lastResponse = response
-		if err != nil {
-			return nil, err
-		}
-		if workflowRuns.GetTotalCount() == 0 {
-			break
+	for _, workflow := range []WID{
+		WID{"Push to main", pushToMainWorkflowId, true},
+		WID{"Docker", dockerWorkflowId, false},
+	} {
+		fmt.Println("Workflow:", workflow.name, "Id:", workflow.id)
+		switch workflow.onlyPush {
+		case true:
+			listOptions.Event = "push"
+		case false:
+			listOptions.Event = ""
 		}
 
-		for _, workflowRun := range workflowRuns.WorkflowRuns {
-			if workflowRun.GetConclusion() != "failure" {
-				continue
+		for page := 1; true; page++ {
+			listOptions.Page = page
+			workflowRuns, response, err := service.ListWorkflowRunsByID(
+				ctx, "viamrobotics", "rdk", workflow.id, &listOptions)
+			lastResponse = response
+			if err != nil {
+				return nil, err
 			}
-			ret = append(ret, workflowRun)
+			// AFAICT, `GetTotalCount` is how many runs match the query in total. Not how many were
+			// returned as part of the API call.
+			fmt.Println("Count:", workflowRuns.GetTotalCount())
+			if workflowRuns.GetTotalCount() == 0 || len(workflowRuns.WorkflowRuns) == 0 {
+				break
+			}
+
+			for _, workflowRun := range workflowRuns.WorkflowRuns {
+				fmt.Println("URL:", workflowRun.GetHTMLURL())
+				if workflowRun.GetConclusion() != "failure" {
+					continue
+				}
+				ret = append(ret, workflowRun)
+			}
+
+			if len(workflowRuns.WorkflowRuns) < listOptions.PerPage {
+				break
+			}
 		}
 	}
 
