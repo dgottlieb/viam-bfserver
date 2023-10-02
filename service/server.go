@@ -100,7 +100,6 @@ func FindFailingRuns(ctx context.Context, client *github.Client, startDate, endD
 		WID{"Push to main", pushToMainWorkflowId, true},
 		WID{"Docker", dockerWorkflowId, false},
 	} {
-		fmt.Println("Workflow:", workflow.name, "Id:", workflow.id)
 		switch workflow.onlyPush {
 		case true:
 			listOptions.Event = "push"
@@ -118,13 +117,11 @@ func FindFailingRuns(ctx context.Context, client *github.Client, startDate, endD
 			}
 			// AFAICT, `GetTotalCount` is how many runs match the query in total. Not how many were
 			// returned as part of the API call.
-			fmt.Println("Count:", workflowRuns.GetTotalCount())
 			if workflowRuns.GetTotalCount() == 0 || len(workflowRuns.WorkflowRuns) == 0 {
 				break
 			}
 
 			for _, workflowRun := range workflowRuns.WorkflowRuns {
-				fmt.Println("URL:", workflowRun.GetHTMLURL())
 				if workflowRun.GetConclusion() != "failure" {
 					continue
 				}
