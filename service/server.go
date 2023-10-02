@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"github.com/google/go-github/v53/github"
+	"github.com/viamrobotics/bfserver/util"
 )
 
 var lastResponse *github.Response
@@ -26,8 +27,6 @@ func GithubRate() github.Rate {
 	}
 	return lastResponse.Rate
 }
-
-var GDebug bool = false
 
 // Removes white-space from the end of a string
 func trimRightSpace(str string) string {
@@ -75,17 +74,11 @@ func FindFailingRuns(ctx context.Context, client *github.Client, startDate, endD
 		// `Created` range query syntax:
 		// https://docs.github.com/en/search-github/getting-started-with-searching-on-github/understanding-the-search-syntax#query-for-dates
 		Created: fmt.Sprintf("%v..%v", startDate, endDate),
-		Event:   "push",
 		Status:  "completed",
 		ListOptions: github.ListOptions{
 			PerPage: 100,
 		},
 	}
-
-	// Build and Publish Latest -- 17922513
-	const pushToMainWorkflowId int64 = 17922513
-	// Docker - 6417489
-	const dockerWorkflowId int64 = 6417489
 
 	ret := []*github.WorkflowRun{}
 	type WID struct {
@@ -97,9 +90,13 @@ func FindFailingRuns(ctx context.Context, client *github.Client, startDate, endD
 
 	// Github pagination starts at Page 1.
 	for _, workflow := range []WID{
-		WID{"Push to main", pushToMainWorkflowId, true},
-		WID{"Docker", dockerWorkflowId, false},
+		// WID{"Build and Publish Latest", 17922513, true},
+		WID{"Docker", 6417489, false},
+		WID{"Build and Publish RC", 56639284, false},
 	} {
+		if util.GDebug {
+			fmt.Println("Querying:", workflow.name)
+		}
 		switch workflow.onlyPush {
 		case true:
 			listOptions.Event = "push"
@@ -115,13 +112,11 @@ func FindFailingRuns(ctx context.Context, client *github.Client, startDate, endD
 			if err != nil {
 				return nil, err
 			}
-			// AFAICT, `GetTotalCount` is how many runs match the query in total. Not how many were
-			// returned as part of the API call.
-			if workflowRuns.GetTotalCount() == 0 || len(workflowRuns.WorkflowRuns) == 0 {
-				break
-			}
 
 			for _, workflowRun := range workflowRuns.WorkflowRuns {
+				if util.GDebug {
+					fmt.Println("Run URL:", workflowRun.GetHTMLURL(), "Conclusion", workflowRun.GetConclusion())
+				}
 				if workflowRun.GetConclusion() != "failure" {
 					continue
 				}
@@ -315,7 +310,7 @@ func parseFailures(ctx context.Context, logContents *json.Decoder) (*Output, err
 		doc.Output = trimRightSpace(doc.Output)
 
 		if doc.Action == "fail" {
-			if GDebug {
+			if util.GDebug {
 				fmt.Printf("Found doc.Action=`fail`.\n  Doc:%+v\n", doc)
 			}
 			// All failures are associated with a `Package`. Some (most) failures also are
@@ -341,7 +336,7 @@ func parseFailures(ctx context.Context, logContents *json.Decoder) (*Output, err
 			if strings.Contains(doc.Test, "TestSabertooth") {
 				continue
 			}
-			if GDebug {
+			if util.GDebug {
 				fmt.Printf("Found `expected`: %v\n  Adding half-assertion for: `%v`\n",
 					strings.TrimSpace(doc.Output),
 					doc.ToFQTest())
@@ -361,7 +356,7 @@ func parseFailures(ctx context.Context, logContents *json.Decoder) (*Output, err
 		}
 
 		if matches := actualRe.FindStringSubmatch(doc.Output); len(matches) > 0 {
-			if GDebug {
+			if util.GDebug {
 				fmt.Printf("Found `actual`: %v\n  Adding Assertion for: `%v`\n", doc.Output, doc.ToFQTest())
 			}
 			failure := halfAssertionFailure[doc.ToFQTest()]
@@ -375,7 +370,7 @@ func parseFailures(ctx context.Context, logContents *json.Decoder) (*Output, err
 		// timeout stack traces can interleave with output from different tests. Keep a buffer for
 		// all remaining log lines for the test.
 		if startTimeoutRe.MatchString(doc.Output) {
-			if GDebug {
+			if util.GDebug {
 				fmt.Println("Found timeout:", doc.Output)
 			}
 			ret.Timeouts[doc.ToFQTest()] = &TimeoutFailure{
@@ -391,7 +386,7 @@ func parseFailures(ctx context.Context, logContents *json.Decoder) (*Output, err
 		}
 
 		if doc.Output == "WARNING: DATA RACE\n" {
-			if GDebug {
+			if util.GDebug {
 				fmt.Println("Found data race:", doc.Output)
 			}
 			ret.Dataraces[FQTest(doc.Package)] = &DataraceFailure{
@@ -408,32 +403,32 @@ func parseFailures(ctx context.Context, logContents *json.Decoder) (*Output, err
 	}
 
 	for test, expectedMsg := range halfAssertionFailure {
-		if GDebug && !strings.Contains(string(test), "TestSabertooth") {
+		if util.GDebug && !strings.Contains(string(test), "TestSabertooth") {
 			fmt.Printf("Adding half assertion to full. Test: %v ExpectedMsg: %+v\n", test, *expectedMsg)
 		}
 		ret.Assertions[test] = append(ret.Assertions[test], *expectedMsg)
 	}
 
 	for test := range ret.Assertions {
-		if GDebug && !strings.Contains(string(test), "TestSabertooth") {
+		if util.GDebug && !strings.Contains(string(test), "TestSabertooth") {
 			fmt.Println("Saving logs for assertion failure:", test)
 		}
 		ret.Logs[test] = allTestLogs[test]
 	}
 	for test := range ret.Timeouts {
-		if GDebug {
+		if util.GDebug {
 			fmt.Println("Saving logs for timeout failure:", test)
 		}
 		ret.Logs[test] = allTestLogs[test]
 	}
 	for test := range ret.Dataraces {
-		if GDebug {
+		if util.GDebug {
 			fmt.Println("Saving logs for datarace failure:", test)
 		}
 		ret.Logs[test] = allTestLogs[test]
 	}
 
-	if GDebug {
+	if util.GDebug {
 		fmt.Println("All failures:", ret.TestFailures)
 		for _, testFailure := range ret.TestFailures {
 			_, aExists := ret.Assertions[testFailure]
@@ -518,7 +513,7 @@ func fetchAndParseFailures(ctx context.Context, client *github.Client, zippedLog
 		return nil, err
 	}
 
-	if GDebug {
+	if util.GDebug {
 		os.WriteFile("gotest_logs.json.zip", zippedBytes.Bytes(), 0644)
 	}
 
@@ -591,7 +586,7 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, j
 	//   test / Build and Test (buildjet-8vcpu-ubuntu-2204, ghcr.io/viamrobotics/canon:amd64-cache, linux/amd64, ...
 	//   test / Build and Test (buildjet-8vcpu-ubuntu-2204-arm, ghcr.io/viamrobotics/canon:arm64-cache, linux/arm...
 	for _, job := range jobs.Jobs {
-		// if GDebug {
+		// if util.GDebug {
 		//  	fmt.Printf("Job: %v Conclusion: %v\n", job.GetName(), job.GetConclusion())
 		// }
 		if !strings.Contains(job.GetName(), "Build and Test") {
@@ -638,7 +633,7 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, j
 
 	ret := []Failure{}
 	if errors.amd == true && logs.amd != nil {
-		if GDebug {
+		if util.GDebug {
 			fmt.Println("Amd failures")
 		}
 		ind := NewIndenter()
@@ -654,7 +649,7 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, j
 	}
 
 	if errors.arm == true && logs.arm != nil {
-		if GDebug {
+		if util.GDebug {
 			fmt.Println("\nArm failures")
 		}
 		ind := NewIndenter()

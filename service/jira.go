@@ -7,6 +7,7 @@ import (
 
 	"github.com/andygrunwald/go-jira"
 	"github.com/trivago/tgo/tcontainer"
+	"github.com/viamrobotics/bfserver/util"
 )
 
 func truncate(logs []string, maxSize int) string {
@@ -47,6 +48,7 @@ func PushTickets(newTickets []*jira.Issue, existingTickets []jira.Issue, jiraUse
 	for _, ticket := range newTickets {
 		if name := exists(ticket); name != "" {
 			fmt.Println("Failure exists.\n\tTicket:", ticket.Key, "\n\tSummary:", ticket.Fields.Summary)
+			continue
 		}
 
 		filed, resp, err := jiraClient.Issue.Create(ticket)
@@ -70,7 +72,7 @@ func CreateTicketObjectsFromFailure(runFailure Failure) []*jira.Issue {
 	for _, fqTest := range artifacts.TestFailures {
 		fmt.Println("Test:", fqTest, "NumLogs:", len(artifacts.Logs[fqTest]))
 		if len(artifacts.Logs[fqTest]) == 0 {
-			if GDebug {
+			if util.GDebug {
 				fmt.Println("  No logs, skipping:", fqTest)
 			}
 			continue

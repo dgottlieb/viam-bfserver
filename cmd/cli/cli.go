@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"regexp"
@@ -30,6 +29,8 @@ func main() {
 		discover()
 	case "list":
 		list()
+	case "test":
+		test()
 	default:
 		fmt.Printf("Unknown command: `%v`\n", os.Args[1])
 		fmt.Println("Usage:\n\tbfserver discover\n\tbfserver analyze")
@@ -39,67 +40,29 @@ func main() {
 	fmt.Println("Github Rate:", service.GithubRate())
 }
 
+func test() {
+	args := util.ParseProgramArgs()
+	ticket := "RSDK-5192"
+
+	jiraClient := args.GetJiraClient()
+	links, _, err := jiraClient.Issue.GetRemoteLinks(ticket)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Links: %#v\n", links)
+}
+
 func discover() {
-	var githubToken, jiraUsername, jiraToken string
-
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		panic(err)
-	}
-
-	secretsFile, err := os.Open(fmt.Sprintf("%v/bfserver/secrets", configDir))
-	if err != nil {
-		panic(err)
-	}
-	defer secretsFile.Close()
-
-	scanner := bufio.NewScanner(secretsFile)
-	scanner.Split(bufio.ScanLines)
-	for scanner.Scan() {
-		key, value, found := strings.Cut(scanner.Text(), "=")
-		if !found {
-			fmt.Println("Bad secrets line:", scanner.Text())
-			continue
-		}
-
-		switch key {
-		case "github_api_token":
-			githubToken = value
-		case "jira_username":
-			jiraUsername = value
-		case "jira_api_token":
-			jiraToken = value
-		}
-	}
-
-	var (
-		fileTickets = false
-		handRun     = false
-	)
-
-	// fileTickets := flag.Bool("file", false, "File JIRA tickets for failing tests.")
-	// handRun := flag.Bool("handRun", false, "When run automatically, the program skips over processed github runs. Use `handRun` for debugging a specific run.")
-	// flag.BoolVar(&service.GDebug, "debug", true, "debug mode")
-	flag.Parse()
+	arg := util.ParseProgramArgs()
+	fmt.Println("Debug?", util.GDebug)
 
 	var startDate, endDate string
 
 	emptyArgs := make([]string, 0)
-	for _, arg := range flag.Args() {
+	for _, arg := range os.Args[1:] {
 		if strings.HasPrefix(arg, "-") == false {
 			emptyArgs = append(emptyArgs, arg)
-			continue
-		}
-
-		switch arg {
-		case "--handRun":
-			handRun = true
-		case "-d":
-			service.GDebug = true
-		case "--debug":
-			service.GDebug = true
-		case "--file":
-			fileTickets = true
 		}
 	}
 
@@ -118,18 +81,18 @@ func discover() {
 	}
 
 	ctx := context.Background()
-	client := github.NewTokenClient(ctx, githubToken)
+	client := arg.GetGithubClient()
 	runs, err := service.FindFailingRuns(ctx, client, startDate, endDate)
 	if err != nil {
 		panic(err)
 	}
 
 	// For deduping.
-	openIssues := service.GetOpenFlakeyFailureTickets(jiraUsername, jiraToken)
+	openIssues := service.GetOpenFlakeyFailureTickets(arg.JiraUsername, arg.JiraToken)
 
 	for _, run := range runs {
 		if inSeenCache(*run.ID) {
-			if handRun == false {
+			if arg.HandRun == false {
 				fmt.Println("Run in cache. Skipping:", *run.ID, "Date:", *run.RunStartedAt, "Link:", *run.HTMLURL)
 				continue
 			} else {
@@ -151,15 +114,15 @@ func discover() {
 			i2 := service.NewIndenter()
 			tickets := service.CreateTicketObjectsFromFailure(failure)
 			fmt.Printf("NumTickets: %v\n", len(tickets))
-			if fileTickets {
-				err = service.PushTickets(tickets, openIssues, jiraUsername, jiraToken)
+			if arg.FileTickets {
+				err = service.PushTickets(tickets, openIssues, arg.JiraUsername, arg.JiraToken)
 				if err != nil {
 					panic(err)
 				}
 			}
 
 			for idx, ticket := range tickets {
-				if fileTickets {
+				if arg.FileTickets {
 					fmt.Println("Ticket:", ticket.Key)
 				} else {
 					fmt.Printf("Unfiled ticket #%d\n", idx+1)
@@ -172,7 +135,7 @@ func discover() {
 			i2.Close()
 		}
 
-		if fileTickets {
+		if arg.FileTickets {
 			writeSeenCache(*run.ID)
 		}
 		i1.Close()
