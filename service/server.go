@@ -257,6 +257,7 @@ func (failure AssertionFailure) GetAssertionCodeLinkWithText(linkText, gitHash s
 }
 
 type DataraceFailure struct {
+	Package  string
 	LogLines []string
 }
 
@@ -385,11 +386,13 @@ func parseFailures(ctx context.Context, logContents *json.Decoder) (*Output, err
 			continue
 		}
 
-		if doc.Output == "WARNING: DATA RACE\n" {
+		if doc.Output == "WARNING: DATA RACE" {
 			if util.GDebug {
-				fmt.Println("Found data race:", doc.Output)
+				fmt.Println("Found data race. Package:", doc.Package, " FQTest:", doc.ToFQTest())
+				fmt.Println(doc.Output)
 			}
-			ret.Dataraces[FQTest(doc.Package)] = &DataraceFailure{
+			ret.Dataraces[doc.ToFQTest()] = &DataraceFailure{
+				Package:  doc.Package,
 				LogLines: []string{doc.Output},
 			}
 			ret.TestFailures = append(ret.TestFailures, doc.ToFQTest())

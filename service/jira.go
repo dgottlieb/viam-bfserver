@@ -26,6 +26,10 @@ func truncate(logs []string, maxSize int) string {
 	return strings.Join(logs, "\n")
 }
 
+// `PushTickets` will run dedup logic and either:
+// - Create a new ticket for a new failure.
+// - Add a link to an existing ticket for a deduped failure.
+//
 // `newTickets` input is modified in place with the `Issue.Key` value from the jira API response.
 func PushTickets(newTickets []*jira.Issue, existingTickets []jira.Issue, githubRunUrl, jiraUsername, jiraToken string) error {
 	tp := jira.BasicAuthTransport{
@@ -34,7 +38,7 @@ func PushTickets(newTickets []*jira.Issue, existingTickets []jira.Issue, githubR
 	}
 	jiraClient, _ := jira.NewClient(tp.Client(), "https://viam.atlassian.net/")
 
-	// Returns non-empty ticket on match. E.g: `RSDK-5192`.
+	// For deduping. Returns non-empty ticket string on match. E.g: `RSDK-5192`.
 	exists := func(failure *jira.Issue) string {
 		for _, existingTicket := range existingTickets {
 			if failure.Fields.Summary == existingTicket.Fields.Summary {
@@ -47,7 +51,8 @@ func PushTickets(newTickets []*jira.Issue, existingTickets []jira.Issue, githubR
 
 	for _, ticket := range newTickets {
 		if name := exists(ticket); name != "" {
-			fmt.Println("Failure exists.\n\tTicket:", ticket.Key, "\n\tSummary:", ticket.Fields.Summary)
+			ticket.Key = name
+			fmt.Println("Failure exists.\n\tTicket:", name, "\n\tSummary:", ticket.Fields.Summary)
 			jiraClient.Issue.AddRemoteLink(name, &jira.RemoteLink{
 				Object: &jira.RemoteLinkObject{
 					URL:   githubRunUrl,
@@ -87,6 +92,8 @@ func CreateTicketObjectsFromFailure(runFailure Failure) []*jira.Issue {
 		var summary string
 		var assertionMsg string
 		var assertionCodeLink string
+
+		// Consolidate with `GetSummaryForFailure`?
 		if assertions := artifacts.Assertions[fqTest]; len(assertions) > 0 {
 			summary = fmt.Sprintf("Test Failure: %v", fqTest)
 			assertionMsg = assertions[0].ToPrettyString("")

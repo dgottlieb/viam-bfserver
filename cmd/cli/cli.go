@@ -31,7 +31,7 @@ func main() {
 		list()
 	default:
 		fmt.Printf("Unknown command: `%v`\n", os.Args[1])
-		fmt.Println("Usage:\n\tbfserver discover\n\tbfserver analyze")
+		fmt.Println("Usage:\n\tbfserver discover\n\tbfserver analyze\n\tbfserver list")
 		return
 	}
 
@@ -272,13 +272,16 @@ func analyze() {
 		failure.Output.ThingsThatFailed("  ", failure.GitHash)
 	}
 
-	fmt.Println("Deduping\n---------------------------")
 	if args.Dedup {
+		fmt.Println("Deduping\n---------------------------")
 		fmt.Println("All failures:", failures)
 		for _, failure := range failures {
 			fmt.Println("Test failures:", failure.Output.TestFailures)
 			for _, fqTest := range failure.Output.TestFailures {
-				service.RunDedup(failure, fqTest, service.GetOpenFlakeyFailureTickets(args.JiraUsername, args.JiraToken))
+				err := service.RunDedup(failure, fqTest, service.GetOpenFlakeyFailureTickets(args.JiraUsername, args.JiraToken))
+				if err != nil {
+					fmt.Println("Failed to run dedup/find test failure details. Test:", fqTest, " Err:", err)
+				}
 			}
 		}
 	}
