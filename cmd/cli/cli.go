@@ -87,7 +87,7 @@ func discover() {
 		fmt.Println("New run:", *run.ID, "Date:", *run.RunStartedAt, "Link:", *run.HTMLURL)
 		i1 := service.NewIndenter()
 
-		failures, err := service.GithubRunToFailedTests(ctx, client, *run.ID, int64(0))
+		failures, err := service.GithubRunToFailedTests(ctx, client, "rdk", *run.ID, int64(0))
 		if err != nil {
 			panic(err)
 
@@ -230,15 +230,21 @@ func analyze() {
 	client := github.NewTokenClient(ctx, args.GithubToken)
 
 	// Example url: https://github.com/viamrobotics/rdk/actions/runs/5859328480/job/15885094207
-	runJobRe := regexp.MustCompile(`/actions/runs/(\d+)/job/(\d+)`)
+	runJobRe := regexp.MustCompile(`/([^/]*?)/actions/runs/(\d+)/job/(\d+)`)
 	matches := runJobRe.FindStringSubmatch(args.Url)
 
-	runId, err := strconv.ParseInt(matches[1], 10, 64)
+	matchIdx := 1
+	repo := matches[matchIdx]
+
+	matchIdx++
+	runId, err := strconv.ParseInt(matches[matchIdx], 10, 64)
 	if err != nil {
 		fmt.Println("Error parsing the run id from the link:", args.Url)
 		panic(err)
 	}
-	jobId, err := strconv.ParseInt(matches[2], 10, 64)
+
+	matchIdx++
+	jobId, err := strconv.ParseInt(matches[matchIdx], 10, 64)
 	if err != nil {
 		fmt.Println("Error parsing the job id from the link:", args.Url)
 		panic(err)
@@ -246,11 +252,11 @@ func analyze() {
 
 	var failures []service.Failure
 	if args.IsJob {
-		failures, err = service.GithubRunToFailedTests(ctx, client, runId, jobId)
+		failures, err = service.GithubRunToFailedTests(ctx, client, repo, runId, jobId)
 	} else if args.IsRun {
 		// Passing zero gets failures for all jobs in the run
 		allJobs := int64(0)
-		failures, err = service.GithubRunToFailedTests(ctx, client, runId, allJobs)
+		failures, err = service.GithubRunToFailedTests(ctx, client, repo, runId, allJobs)
 	} else {
 		fmt.Println("Must pass --job or --run")
 	}

@@ -563,9 +563,9 @@ type Failure struct {
 	Output     *Output
 }
 
-func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, jobId int64) ([]Failure, error) {
+func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo string, runId, jobId int64) ([]Failure, error) {
 	service := client.Actions
-	jobs, response, err := service.ListWorkflowJobs(ctx, "viamrobotics", "rdk", runId,
+	jobs, response, err := service.ListWorkflowJobs(ctx, "viamrobotics", repo, runId,
 		// `all` and `latest`. `latest` only gives the latest re-run. Use `all` for test failures on
 		// potentially prior runs. To avoid complexity of github re-runs deleting artifacts, we only
 		// consider `latest` failures.
@@ -615,7 +615,7 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, j
 
 	// Artifacts get wiped when a workflow is re-run. This is a github limitation:
 	// https://github.com/actions/upload-artifact/issues/323#issuecomment-1145869465
-	artifacts, response, err := service.ListWorkflowRunArtifacts(ctx, "viamrobotics", "rdk", runId, nil)
+	artifacts, response, err := service.ListWorkflowRunArtifacts(ctx, "viamrobotics", repo, runId, nil)
 	lastResponse = response
 	if err != nil {
 		return nil, err
@@ -645,7 +645,7 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, j
 			return nil, err
 		}
 		if !output.IsSuccess() {
-			jobLink := fmt.Sprintf("https://github.com/viamrobotics/rdk/actions/runs/%v/job/%v", runId, jobIds.amd)
+			jobLink := fmt.Sprintf("https://github.com/viamrobotics/%v/actions/runs/%v/job/%v", repo, runId, jobIds.amd)
 			ret = append(ret, Failure{"amd64", jobLink, gitHash, output})
 		}
 		ind.Close()
@@ -662,7 +662,7 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, j
 		}
 		if !output.IsSuccess() {
 			// See above
-			jobLink := fmt.Sprintf("https://github.com/viamrobotics/rdk/actions/runs/%v/job/%v", runId, jobIds.arm)
+			jobLink := fmt.Sprintf("https://github.com/viamrobotics/%v/actions/runs/%v/job/%v", repo, runId, jobIds.arm)
 			ret = append(ret, Failure{"arm64", jobLink, gitHash, output})
 		}
 		ind.Close()
