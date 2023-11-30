@@ -576,12 +576,14 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 	}
 
 	var jobIds struct {
-		amd int64
-		arm int64
+		amd     int64
+		arm     int64
+		goutils int64
 	}
 	var errors struct {
-		amd bool
-		arm bool
+		amd     bool
+		arm     bool
+		goutils bool
 	}
 	var gitHash string
 
@@ -589,9 +591,9 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 	//   test / Build and Test (buildjet-8vcpu-ubuntu-2204, ghcr.io/viamrobotics/canon:amd64-cache, linux/amd64, ...
 	//   test / Build and Test (buildjet-8vcpu-ubuntu-2204-arm, ghcr.io/viamrobotics/canon:arm64-cache, linux/arm...
 	for _, job := range jobs.Jobs {
-		// if util.GDebug {
-		//  	fmt.Printf("Job: %v Conclusion: %v\n", job.GetName(), job.GetConclusion())
-		// }
+		if util.GDebug {
+			fmt.Printf("Job: %v Conclusion: %v\n", job.GetName(), job.GetConclusion())
+		}
 		if !strings.Contains(job.GetName(), "Build and Test") {
 			continue
 		}
@@ -604,12 +606,15 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 
 		gitHash = job.GetHeadSHA()
 		switch {
-		case strings.Contains(job.GetName(), "amd64"):
+		case repo == "rdk" && strings.Contains(job.GetName(), "amd64"):
 			jobIds.amd = job.GetID()
 			errors.amd = true
-		case strings.Contains(job.GetName(), "arm64"):
+		case repo == "rdk" && strings.Contains(job.GetName(), "arm64"):
 			jobIds.arm = job.GetID()
 			errors.arm = true
+		case repo == "goutils":
+			jobIds.goutils = job.GetID()
+			errors.goutils = true
 		}
 	}
 
@@ -622,8 +627,9 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 	}
 
 	var logs struct {
-		amd *github.Artifact
-		arm *github.Artifact
+		amd     *github.Artifact
+		arm     *github.Artifact
+		goutils *github.Artifact
 	}
 	for _, artifact := range artifacts.Artifacts {
 		switch {
@@ -652,6 +658,23 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 	}
 
 	if errors.arm == true && logs.arm != nil {
+		if util.GDebug {
+			fmt.Println("\nArm failures")
+		}
+		ind := NewIndenter()
+		output, err := fetchAndParseFailures(ctx, client, logs.arm)
+		if err != nil {
+			return nil, err
+		}
+		if !output.IsSuccess() {
+			// See above
+			jobLink := fmt.Sprintf("https://github.com/viamrobotics/%v/actions/runs/%v/job/%v", repo, runId, jobIds.arm)
+			ret = append(ret, Failure{"arm64", jobLink, gitHash, output})
+		}
+		ind.Close()
+	}
+
+	if errors.goutils == true && logs.goutils != nil {
 		if util.GDebug {
 			fmt.Println("\nArm failures")
 		}

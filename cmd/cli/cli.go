@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/go-github/v53/github"
+	"github.com/kr/pretty"
 	"github.com/viamrobotics/bfserver/service"
 	"github.com/viamrobotics/bfserver/util"
 )
@@ -232,6 +233,8 @@ func analyze() {
 	// Example url: https://github.com/viamrobotics/rdk/actions/runs/5859328480/job/15885094207
 	runJobRe := regexp.MustCompile(`/([^/]*?)/actions/runs/(\d+)/job/(\d+)`)
 	matches := runJobRe.FindStringSubmatch(args.Url)
+
+	pretty.Println("Matches:", matches)
 
 	matchIdx := 1
 	repo := matches[matchIdx]
