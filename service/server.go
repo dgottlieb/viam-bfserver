@@ -633,17 +633,19 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 	}
 	for _, artifact := range artifacts.Artifacts {
 		switch {
-		case artifact.GetName() == "test-linux-amd64.json":
+		case repo == "rdk" && artifact.GetName() == "test-linux-amd64.json":
 			logs.amd = artifact
-		case artifact.GetName() == "test-linux-arm64.json":
+		case repo == "rdk" && artifact.GetName() == "test-linux-arm64.json":
 			logs.arm = artifact
+		case repo == "goutils" && artifact.GetName() == "test.json":
+			logs.goutils = artifact
 		}
 	}
 
 	ret := []Failure{}
 	if errors.amd == true && logs.amd != nil {
 		if util.GDebug {
-			fmt.Println("Amd failures")
+			fmt.Println("RDK Amd failures")
 		}
 		ind := NewIndenter()
 		output, err := fetchAndParseFailures(ctx, client, logs.amd)
@@ -659,7 +661,7 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 
 	if errors.arm == true && logs.arm != nil {
 		if util.GDebug {
-			fmt.Println("\nArm failures")
+			fmt.Println("\nRDK Arm failures")
 		}
 		ind := NewIndenter()
 		output, err := fetchAndParseFailures(ctx, client, logs.arm)
@@ -676,17 +678,17 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 
 	if errors.goutils == true && logs.goutils != nil {
 		if util.GDebug {
-			fmt.Println("\nArm failures")
+			fmt.Println("\nGoutils failures")
 		}
 		ind := NewIndenter()
-		output, err := fetchAndParseFailures(ctx, client, logs.arm)
+		output, err := fetchAndParseFailures(ctx, client, logs.goutils)
 		if err != nil {
 			return nil, err
 		}
 		if !output.IsSuccess() {
 			// See above
-			jobLink := fmt.Sprintf("https://github.com/viamrobotics/%v/actions/runs/%v/job/%v", repo, runId, jobIds.arm)
-			ret = append(ret, Failure{"arm64", jobLink, gitHash, output})
+			jobLink := fmt.Sprintf("https://github.com/viamrobotics/%v/actions/runs/%v/job/%v", repo, runId, jobIds.goutils)
+			ret = append(ret, Failure{"goutils", jobLink, gitHash, output})
 		}
 		ind.Close()
 	}
