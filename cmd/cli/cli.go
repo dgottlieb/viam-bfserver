@@ -269,18 +269,40 @@ func analyze() {
 	for _, failure := range failures {
 		fmt.Printf("  %v\n", failure.Variant)
 		fmt.Println("  ---------------------------")
-		failure.Output.ThingsThatFailed("  ", failure.GitHash)
+		failure.Output.ThingsThatFailed("  ", failure)
 	}
 
-	if args.Dedup {
-		fmt.Println("Deduping\n---------------------------")
-		fmt.Println("All failures:", failures)
-		for _, failure := range failures {
-			fmt.Println("Test failures:", failure.Output.TestFailures)
-			for _, fqTest := range failure.Output.TestFailures {
-				err := service.RunDedup(failure, fqTest, service.GetOpenFlakeyFailureTickets(args.JiraUsername, args.JiraToken))
+	if args.Dedup || args.FileTickets {
+		openTickets := service.GetOpenFlakeyFailureTickets(args.JiraUsername, args.JiraToken)
+
+		switch {
+		case args.Dedup:
+			fmt.Println("Deduping\n---------------------------")
+			fmt.Println("All failures:", failures)
+			for _, failure := range failures {
+				fmt.Println("Test failures:", failure.Output.TestFailures)
+				for _, fqTest := range failure.Output.TestFailures {
+					err := service.RunDedup(failure, fqTest, openTickets)
+					if err != nil {
+						fmt.Println("Failed to run dedup/find test failure details. Test:", fqTest, " Err:", err)
+					}
+				}
+			}
+		case args.FileTickets:
+			fmt.Println("Filing\n---------------------------")
+			fmt.Println("All failures:", failures)
+			for _, failure := range failures {
+				tickets := service.CreateTicketObjectsFromFailure(failure)
+				fmt.Printf("NumTickets: %v\n", len(tickets))
+				err = service.PushTickets(tickets, openTickets, failure.WorkflowRun.GetHTMLURL(), args.JiraUsername, args.JiraToken)
 				if err != nil {
-					fmt.Println("Failed to run dedup/find test failure details. Test:", fqTest, " Err:", err)
+					panic(err)
+				}
+
+				for _, ticket := range tickets {
+					fmt.Println("Ticket:", ticket.Key)
+					fmt.Println("Summary:", ticket.Fields.Summary)
+					fmt.Printf("Description:\n%v\n\n", ticket.Fields.Description)
 				}
 			}
 		}
