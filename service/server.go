@@ -44,7 +44,10 @@ func FindFailingRuns(ctx context.Context, client *github.Client, startDate, endD
 	service := client.Actions
 
 	/**
-	 * For reference, our workflows have the following "Workflow IDs":
+	 * Workflow IDs can be retrieved via the GitHub API/CLI. E.g:
+	 *   `gh workflow --repo viamrobotics/goutils list`
+	 *
+	 * For reference, RDK workflows have the following "Workflow IDs":
 	 * - Test - 4360636
 	 * - Docker - 6417489
 	 * - Build AppImage - 16480684
@@ -82,6 +85,7 @@ func FindFailingRuns(ctx context.Context, client *github.Client, startDate, endD
 
 	ret := []*github.WorkflowRun{}
 	type WID struct {
+		repo string
 		name string
 		id   int64
 
@@ -90,12 +94,14 @@ func FindFailingRuns(ctx context.Context, client *github.Client, startDate, endD
 
 	// Github pagination starts at Page 1.
 	for _, workflow := range []WID{
-		WID{"Build and Publish Latest", 17922513, true},
-		WID{"Docker", 6417489, false},
-		WID{"Build and Publish RC", 56639284, false},
+		WID{"rdk", "Build and Publish Latest", 17922513, true},
+		WID{"rdk", "Docker", 6417489, false},
+		WID{"rdk", "Build and Publish RC", 56639284, false},
+		WID{"app", "Main Branch Update", 20902450, true},
+		WID{"goutils", "Build and Test", 10703570, true},
 	} {
 		if util.GDebug {
-			fmt.Println("Querying:", workflow.name)
+			fmt.Printf("Querying: %v/%v\n", workflow.repo, workflow.name)
 		}
 		switch workflow.onlyPush {
 		case true:
@@ -107,7 +113,7 @@ func FindFailingRuns(ctx context.Context, client *github.Client, startDate, endD
 		for page := 1; true; page++ {
 			listOptions.Page = page
 			workflowRuns, response, err := service.ListWorkflowRunsByID(
-				ctx, "viamrobotics", "rdk", workflow.id, &listOptions)
+				ctx, "viamrobotics", workflow.repo, workflow.id, &listOptions)
 			lastResponse = response
 			if err != nil {
 				return nil, err
@@ -189,12 +195,12 @@ func (output Output) PrettyPrint(indent string) {
 	}
 }
 
-func (output Output) ThingsThatFailed(indent, gitHash string) {
+func (output Output) ThingsThatFailed(indent string, failure Failure) {
 	for test, assertions := range output.Assertions {
 		for _, assertion := range assertions {
 			fmt.Printf("%sFailed: %v (%v:%d)\n", indent, test, assertion.File, assertion.Line)
 			fmt.Printf("%s%sCode link: %s\n",
-				indent, "  ", assertion.GetAssertionCodeLink(gitHash))
+				indent, "  ", assertion.GetAssertionCodeLink(failure.GetRepo(), failure.GitHash))
 		}
 	}
 
@@ -232,28 +238,38 @@ type AssertionFailure struct {
 func (failure AssertionFailure) ToPrettyString(indent string) string {
 	switch failure.Actual {
 	case "":
-		return fmt.Sprintf("%sFile:     %s.%s:%d\n%sExpected: %v\n",
+		return fmt.Sprintf("%sFile:     %s/%s:%d\n%sExpected: %v\n",
 			indent, failure.Package, failure.File, failure.Line,
 			indent, failure.Expected)
 	default:
-		return fmt.Sprintf("%sFile:     %s.%s:%d\n%sExpected: %v\n%sActual:   %v",
+		return fmt.Sprintf("%sFile:     %s/%s:%d\n%sExpected: %v\n%sActual:   %v",
 			indent, failure.Package, failure.File, failure.Line,
 			indent, failure.Expected,
 			indent, strings.TrimSpace(failure.Actual))
 	}
 }
 
-func (failure AssertionFailure) GetAssertionCodeLink(gitHash string) string {
-	testPkg, found := strings.CutPrefix(failure.Package, "go.viam.com/rdk/")
+func (failure AssertionFailure) GetAssertionCodeLink(repo string, gitHash string) string {
+	var fullName string
+	switch repo {
+	case "rdk":
+		fullName = "go.viam.com/rdk/"
+	case "goutils":
+		fullName = "go.viam.com/utils/"
+	case "app":
+		fullName = "github.com/viamrobotics/app/"
+	}
+	testPkg, found := strings.CutPrefix(failure.Package, fullName)
+	fmt.Printf("Package: %v Fullname: %v Test: %v Found: %v\n", failure.Package, fullName, testPkg, found)
 	if !found {
 		return ""
 	}
 
-	return fmt.Sprintf("https://github.com/viamrobotics/rdk/blob/%s/%s/%s#L%d", gitHash, testPkg, failure.File, failure.Line)
+	return fmt.Sprintf("https://github.com/viamrobotics/%v/blob/%s/%s/%s#L%d", repo, gitHash, testPkg, failure.File, failure.Line)
 }
 
-func (failure AssertionFailure) GetAssertionCodeLinkWithText(linkText, gitHash string) string {
-	return fmt.Sprintf("[%s|%s]", linkText, failure.GetAssertionCodeLink(gitHash))
+func (failure AssertionFailure) GetAssertionCodeLinkWithText(linkText string, runFailure Failure) string {
+	return fmt.Sprintf("[%s|%s]", linkText, failure.GetAssertionCodeLink(runFailure.GetRepo(), runFailure.GitHash))
 }
 
 type DataraceFailure struct {
@@ -557,31 +573,53 @@ func fetchAndParseFailures(ctx context.Context, client *github.Client, zippedLog
 }
 
 type Failure struct {
-	Variant    string // `arm64` or `amd64`
-	GithubLink string
-	GitHash    string
-	Output     *Output
+	Variant     string // `arm64` or `amd64`
+	GithubLink  string
+	GitHash     string
+	Output      *Output
+	WorkflowRun *github.WorkflowRun
 }
 
-func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, jobId int64) ([]Failure, error) {
+// Returns the shortname. E.g: `rdk`, `goutils` or `app`.
+func (failure Failure) GetRepo() string {
+	return failure.WorkflowRun.GetRepository().GetName()
+}
+
+func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo string, runId, jobId int64) ([]Failure, error) {
 	service := client.Actions
-	jobs, response, err := service.ListWorkflowJobs(ctx, "viamrobotics", "rdk", runId,
+	workflowRun, response, err := service.GetWorkflowRunByID(ctx, "viamrobotics", repo, runId)
+	if err != nil {
+		fmt.Println("Response:", util.ResponseBody(response.Body))
+		panic(err)
+		return nil, err
+	}
+
+	jobs, response, err := service.ListWorkflowJobs(ctx, "viamrobotics", repo, runId,
 		// `all` and `latest`. `latest` only gives the latest re-run. Use `all` for test failures on
 		// potentially prior runs. To avoid complexity of github re-runs deleting artifacts, we only
 		// consider `latest` failures.
 		&github.ListWorkflowJobsOptions{Filter: "latest"})
 	lastResponse = response
+	if util.GDebug {
+		// pretty.Println("ListWorkflowRun Response:", response)
+		// pretty.Println("Err:", err)
+		// fmt.Println("Response:", util.ResponseBody(response.Body))
+	}
 	if err != nil {
 		return nil, err
 	}
 
 	var jobIds struct {
-		amd int64
-		arm int64
+		amd     int64
+		arm     int64
+		goutils int64
+		app     int64
 	}
 	var errors struct {
-		amd bool
-		arm bool
+		amd     bool
+		arm     bool
+		goutils bool
+		app     bool
 	}
 	var gitHash string
 
@@ -589,55 +627,95 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, j
 	//   test / Build and Test (buildjet-8vcpu-ubuntu-2204, ghcr.io/viamrobotics/canon:amd64-cache, linux/amd64, ...
 	//   test / Build and Test (buildjet-8vcpu-ubuntu-2204-arm, ghcr.io/viamrobotics/canon:arm64-cache, linux/arm...
 	for _, job := range jobs.Jobs {
-		// if util.GDebug {
-		//  	fmt.Printf("Job: %v Conclusion: %v\n", job.GetName(), job.GetConclusion())
-		// }
-		if !strings.Contains(job.GetName(), "Build and Test") {
+		if util.GDebug {
+			fmt.Printf("Job: %v Repo: %v Conclusion: %v\n", job.GetName(), repo, job.GetConclusion())
+		}
+
+		if repo == "rdk" && !strings.Contains(job.GetName(), "Go Unit Test") && !strings.Contains(job.GetName(), "Go Coverage Test") {
+			if util.GDebug {
+				fmt.Println(" Skipping because rdk and not test job.")
+			}
 			continue
 		}
+
+		if repo == "goutils" && !strings.Contains(job.GetName(), "Build and Test") {
+			if util.GDebug {
+				fmt.Println(" Skipping because goutils and not test job.")
+			}
+			continue
+		}
+
+		if repo == "app" && !strings.Contains(job.GetName(), "test-go / Test Go") {
+			if util.GDebug {
+				fmt.Println(" Skipping because app and not test job.")
+			}
+			continue
+		}
+
 		if job.GetConclusion() != "failure" {
+			if util.GDebug {
+				fmt.Println(" Skipping because not failure.")
+			}
 			continue
 		}
 		if jobId != 0 && job.GetID() != jobId {
+			fmt.Printf("  Skipping because not jobid. Asked: %v Received: %v\n", jobId, job.GetID())
 			continue
 		}
 
 		gitHash = job.GetHeadSHA()
 		switch {
-		case strings.Contains(job.GetName(), "amd64"):
+		case repo == "rdk" && strings.Contains(job.GetName(), "amd64"):
 			jobIds.amd = job.GetID()
 			errors.amd = true
-		case strings.Contains(job.GetName(), "arm64"):
+		case repo == "rdk" && strings.Contains(job.GetName(), "arm64"):
 			jobIds.arm = job.GetID()
 			errors.arm = true
+		case repo == "goutils":
+			jobIds.goutils = job.GetID()
+			errors.goutils = true
+		case repo == "app":
+			jobIds.app = job.GetID()
+			errors.app = true
 		}
 	}
 
 	// Artifacts get wiped when a workflow is re-run. This is a github limitation:
 	// https://github.com/actions/upload-artifact/issues/323#issuecomment-1145869465
-	artifacts, response, err := service.ListWorkflowRunArtifacts(ctx, "viamrobotics", "rdk", runId, nil)
+	artifacts, response, err := service.ListWorkflowRunArtifacts(ctx, "viamrobotics", repo, runId, nil)
 	lastResponse = response
 	if err != nil {
 		return nil, err
 	}
 
 	var logs struct {
-		amd *github.Artifact
-		arm *github.Artifact
+		amd     *github.Artifact
+		arm     *github.Artifact
+		goutils *github.Artifact
+		app     *github.Artifact
 	}
 	for _, artifact := range artifacts.Artifacts {
 		switch {
-		case artifact.GetName() == "test-linux-amd64.json":
+		case repo == "rdk" && artifact.GetName() == "test-linux-amd64.json":
 			logs.amd = artifact
-		case artifact.GetName() == "test-linux-arm64.json":
+		case repo == "rdk" && artifact.GetName() == "test-linux-arm64.json":
 			logs.arm = artifact
+		case repo == "goutils" && artifact.GetName() == "test.json":
+			logs.goutils = artifact
+		case repo == "app" && artifact.GetName() == "test.json":
+			logs.app = artifact
 		}
+	}
+
+	if util.GDebug {
+		fmt.Printf("NumArtifacts: %v Logs: %+v\n", len(artifacts.Artifacts), logs)
+		fmt.Printf("Errors: %+v\n", errors)
 	}
 
 	ret := []Failure{}
 	if errors.amd == true && logs.amd != nil {
 		if util.GDebug {
-			fmt.Println("Amd failures")
+			fmt.Println("RDK Amd failures")
 		}
 		ind := NewIndenter()
 		output, err := fetchAndParseFailures(ctx, client, logs.amd)
@@ -645,15 +723,15 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, j
 			return nil, err
 		}
 		if !output.IsSuccess() {
-			jobLink := fmt.Sprintf("https://github.com/viamrobotics/rdk/actions/runs/%v/job/%v", runId, jobIds.amd)
-			ret = append(ret, Failure{"amd64", jobLink, gitHash, output})
+			jobLink := fmt.Sprintf("https://github.com/viamrobotics/%v/actions/runs/%v/job/%v", repo, runId, jobIds.amd)
+			ret = append(ret, Failure{"amd64", jobLink, gitHash, output, workflowRun})
 		}
 		ind.Close()
 	}
 
 	if errors.arm == true && logs.arm != nil {
 		if util.GDebug {
-			fmt.Println("\nArm failures")
+			fmt.Println("\nRDK Arm failures")
 		}
 		ind := NewIndenter()
 		output, err := fetchAndParseFailures(ctx, client, logs.arm)
@@ -662,8 +740,42 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, runId, j
 		}
 		if !output.IsSuccess() {
 			// See above
-			jobLink := fmt.Sprintf("https://github.com/viamrobotics/rdk/actions/runs/%v/job/%v", runId, jobIds.arm)
-			ret = append(ret, Failure{"arm64", jobLink, gitHash, output})
+			jobLink := fmt.Sprintf("https://github.com/viamrobotics/%v/actions/runs/%v/job/%v", repo, runId, jobIds.arm)
+			ret = append(ret, Failure{"arm64", jobLink, gitHash, output, workflowRun})
+		}
+		ind.Close()
+	}
+
+	if errors.goutils == true && logs.goutils != nil {
+		if util.GDebug {
+			fmt.Println("\nGoutils failures")
+		}
+		ind := NewIndenter()
+		output, err := fetchAndParseFailures(ctx, client, logs.goutils)
+		if err != nil {
+			return nil, err
+		}
+		if !output.IsSuccess() {
+			// See above
+			jobLink := fmt.Sprintf("https://github.com/viamrobotics/%v/actions/runs/%v/job/%v", repo, runId, jobIds.goutils)
+			ret = append(ret, Failure{"goutils", jobLink, gitHash, output, workflowRun})
+		}
+		ind.Close()
+	}
+
+	if errors.app == true && logs.app != nil {
+		if util.GDebug {
+			fmt.Println("\nApp failures")
+		}
+		ind := NewIndenter()
+		output, err := fetchAndParseFailures(ctx, client, logs.app)
+		if err != nil {
+			return nil, err
+		}
+		if !output.IsSuccess() {
+			// See above
+			jobLink := fmt.Sprintf("https://github.com/viamrobotics/%v/actions/runs/%v/job/%v", repo, runId, jobIds.app)
+			ret = append(ret, Failure{"app", jobLink, gitHash, output, workflowRun})
 		}
 		ind.Close()
 	}

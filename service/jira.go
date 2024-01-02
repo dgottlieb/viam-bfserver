@@ -98,7 +98,7 @@ func CreateTicketObjectsFromFailure(runFailure Failure) []*jira.Issue {
 			summary = fmt.Sprintf("Test Failure: %v", fqTest)
 			assertionMsg = assertions[0].ToPrettyString("")
 			assertionCodeLink = assertions[0].GetAssertionCodeLinkWithText(
-				" (Code Link)", runFailure.GitHash)
+				" (Code Link)", runFailure)
 		} else if timeout := artifacts.Timeouts[fqTest]; timeout != nil {
 			summary = fmt.Sprintf("Test Timeout: %v", fqTest)
 			assertionMsg = timeout.LogLines[0]
@@ -109,10 +109,20 @@ func CreateTicketObjectsFromFailure(runFailure Failure) []*jira.Issue {
 			panic("Unknown")
 		}
 
+		var project string
+		switch runFailure.WorkflowRun.GetRepository().GetName() {
+		case "rdk":
+			project = "RSDK"
+		case "goutils":
+			project = "RSDK"
+		case "app":
+			project = "APP"
+		}
+
 		ticket := &jira.Issue{
 			Fields: &jira.IssueFields{
 				Project: jira.Project{
-					Key: "RSDK",
+					Key: project,
 				},
 				Type: jira.IssueType{
 					Name: "Bug",
