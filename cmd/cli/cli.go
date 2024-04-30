@@ -102,7 +102,7 @@ func discover() {
 			tickets := service.CreateTicketObjectsFromFailure(failure)
 			fmt.Printf("NumTickets: %v\n", len(tickets))
 			if arg.FileTickets {
-				err = service.PushTickets(tickets, openIssues, run.GetHTMLURL(), arg.JiraUsername, arg.JiraToken)
+				err = service.PushTickets(tickets, openIssues, run.GetHTMLURL(), failure.GithubLink, arg.JiraUsername, arg.JiraToken)
 				if err != nil {
 					panic(err)
 				}
@@ -110,13 +110,13 @@ func discover() {
 
 			for idx, ticket := range tickets {
 				if arg.FileTickets {
-					fmt.Println("Ticket:", ticket.Key)
+					fmt.Println("Ticket:", ticket.Issue.Key)
 				} else {
 					fmt.Printf("Unfiled ticket #%d\n", idx+1)
 				}
 				i3 := service.NewIndenter()
-				fmt.Println("Summary:", ticket.Fields.Summary)
-				fmt.Printf("Description:\n%v\n\n", ticket.Fields.Description)
+				fmt.Println("Summary:", ticket.Issue.Fields.Summary)
+				fmt.Printf("Description:\n%v\n\n", ticket.Issue.Fields.Description)
 				i3.Close()
 			}
 			i2.Close()
@@ -302,15 +302,18 @@ func analyze() {
 			for _, failure := range failures {
 				tickets := service.CreateTicketObjectsFromFailure(failure)
 				fmt.Printf("NumTickets: %v\n", len(tickets))
-				err = service.PushTickets(tickets, openTickets, failure.WorkflowRun.GetHTMLURL(), args.JiraUsername, args.JiraToken)
+				err = service.PushTickets(tickets, openTickets,
+					failure.WorkflowRun.GetHTMLURL(),
+					failure.GithubLink,
+					args.JiraUsername, args.JiraToken)
 				if err != nil {
 					panic(err)
 				}
 
 				for _, ticket := range tickets {
-					fmt.Println("Ticket:", ticket.Key)
-					fmt.Println("Summary:", ticket.Fields.Summary)
-					fmt.Printf("Description:\n%v\n\n", ticket.Fields.Description)
+					fmt.Println("Ticket:", ticket.Issue.Key)
+					fmt.Println("Summary:", ticket.Issue.Fields.Summary)
+					fmt.Printf("Description:\n%v\n\n", ticket.Issue.Fields.Description)
 				}
 			}
 		}

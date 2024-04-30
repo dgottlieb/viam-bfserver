@@ -3,6 +3,8 @@ package service
 import (
 	"fmt"
 	"io"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/andygrunwald/go-jira"
@@ -26,12 +28,34 @@ func truncate(logs []string, maxSize int) string {
 	return strings.Join(logs, "\n")
 }
 
+func getRunJobFromURL(githubRunUrl string) (int64, int64) {
+	// Example url: https://github.com/viamrobotics/rdk/actions/runs/5859328480/job/15885094207
+	runJobRe := regexp.MustCompile(`/actions/runs/(\d+)/job/(\d+)`)
+	matches := runJobRe.FindStringSubmatch(githubRunUrl)
+
+	matchIdx := 1
+	runId, err := strconv.ParseInt(matches[matchIdx], 10, 64)
+	if err != nil {
+		fmt.Println("Error parsing the run id from the link:", githubRunUrl)
+		panic(err)
+	}
+
+	matchIdx++
+	jobId, err := strconv.ParseInt(matches[matchIdx], 10, 64)
+	if err != nil {
+		fmt.Println("Error parsing the job id from the link:", githubRunUrl)
+		panic(err)
+	}
+
+	return runId, jobId
+}
+
 // `PushTickets` will run dedup logic and either:
 // - Create a new ticket for a new failure.
 // - Add a link to an existing ticket for a deduped failure.
 //
 // `newTickets` input is modified in place with the `Issue.Key` value from the jira API response.
-func PushTickets(newTickets []*jira.Issue, existingTickets []jira.Issue, githubRunUrl, jiraUsername, jiraToken string) error {
+func PushTickets(newTickets []TicketPlusLogs, existingTickets []jira.Issue, githubRunUrl, githubJobUrl, jiraUsername, jiraToken string) error {
 	tp := jira.BasicAuthTransport{
 		Username: jiraUsername,
 		Password: jiraToken,
@@ -49,7 +73,8 @@ func PushTickets(newTickets []*jira.Issue, existingTickets []jira.Issue, githubR
 		return ""
 	}
 
-	for _, ticket := range newTickets {
+	for _, ticketAndLogs := range newTickets {
+		ticket, logs := ticketAndLogs.Issue, ticketAndLogs.Logs
 		if name := exists(ticket); name != "" {
 			ticket.Key = name
 			fmt.Println("Failure exists.\n\tTicket:", name, "\n\tSummary:", ticket.Fields.Summary)
@@ -59,6 +84,16 @@ func PushTickets(newTickets []*jira.Issue, existingTickets []jira.Issue, githubR
 					Title: "Failure run",
 				}})
 
+			fmt.Println("Posting attachment:", githubJobUrl)
+			runId, jobId := getRunJobFromURL(githubJobUrl)
+			_, resp, err := jiraClient.Issue.PostAttachment(ticket.Key, strings.NewReader(strings.Join(logs, "\n")), fmt.Sprintf("logs.%d.%d", runId, jobId))
+			if err != nil {
+				fmt.Println("Header:", resp.Header)
+				msg, err2 := io.ReadAll(resp.Body)
+				fmt.Println("Msg:", string(msg))
+				fmt.Println("Reading err?", err2)
+				panic(err)
+			}
 			continue
 		}
 
@@ -71,13 +106,28 @@ func PushTickets(newTickets []*jira.Issue, existingTickets []jira.Issue, githubR
 			panic(err)
 		}
 		ticket.Key = filed.Key
+
+		runId, jobId := getRunJobFromURL(githubRunUrl)
+		_, resp, err = jiraClient.Issue.PostAttachment(filed.Key, strings.NewReader(strings.Join(logs, "\n")), fmt.Sprintf("logs.%d.%d", runId, jobId))
+		if err != nil {
+			fmt.Println("Header:", resp.Header)
+			msg, err2 := io.ReadAll(resp.Body)
+			fmt.Println("Msg:", string(msg))
+			fmt.Println("Reading err?", err2)
+			panic(err)
+		}
 	}
 
 	return nil
 }
 
-func CreateTicketObjectsFromFailure(runFailure Failure) []*jira.Issue {
-	ret := make([]*jira.Issue, 0)
+type TicketPlusLogs struct {
+	Issue *jira.Issue
+	Logs  []string
+}
+
+func CreateTicketObjectsFromFailure(runFailure Failure) []TicketPlusLogs {
+	ret := make([]TicketPlusLogs, 0)
 
 	artifacts := runFailure.Output
 	for _, fqTest := range artifacts.TestFailures {
@@ -149,7 +199,7 @@ func CreateTicketObjectsFromFailure(runFailure Failure) []*jira.Issue {
 			},
 		}
 
-		ret = append(ret, ticket)
+		ret = append(ret, TicketPlusLogs{ticket, artifacts.Logs[fqTest]})
 	}
 
 	return ret
