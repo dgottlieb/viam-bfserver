@@ -141,6 +141,7 @@ func CreateTicketObjectsFromFailure(runFailure Failure) []*jira.Issue {
 					truncate(artifacts.Logs[fqTest], 30000)),
 				Labels: []string{"flaky_test"},
 				Unknowns: tcontainer.MarshalMap(map[string]interface{}{
+					// Team
 					"customfield_10074": []map[string]string{
 						map[string]string{"value": "Default"},
 					},

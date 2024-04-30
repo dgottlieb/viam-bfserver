@@ -540,6 +540,9 @@ func fetchAndParseFailures(ctx context.Context, client *github.Client, zippedLog
 	if err != nil {
 		return nil, err
 	}
+	if len(archive.File) == 0 {
+		return nil, fmt.Errorf("Archive has no files.")
+	}
 
 	testLogFile := archive.File[0]
 	logContents, err := testLogFile.Open()

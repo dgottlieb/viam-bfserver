@@ -88,8 +88,11 @@ func discover() {
 
 		failures, err := service.GithubRunToFailedTests(ctx, client, *run.Repository.Name, *run.ID, int64(0))
 		if err != nil {
-			panic(err)
-
+			fmt.Println("Error finding failures:", err)
+			if arg.FileTickets {
+				writeSeenCache(*run.ID)
+			}
+			continue
 		}
 		fmt.Println("Num testing job failures:", len(failures))
 
