@@ -668,10 +668,23 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 
 		gitHash = job.GetHeadSHA()
 		switch {
-		case repo == "rdk" && strings.Contains(job.GetName(), "amd64"):
+		// Old RDK matchers
+		case false && repo == "rdk" && strings.Contains(job.GetName(), "amd64"):
+			// JobName e.g: test / Go Unit Tests (buildjet-8vcpu-ubuntu-2204, ghcr.io/viamrobotics/rdk-devenv:amd64-cache, linux/amd...
 			jobIds.amd = job.GetID()
 			errors.amd = true
-		case repo == "rdk" && strings.Contains(job.GetName(), "arm64"):
+		case false && repo == "rdk" && strings.Contains(job.GetName(), "location_de_arm"):
+			// JobName e.g: test / Go Unit Tests (buildjet-8vcpu-ubuntu-2204-arm, buildjet-pinned-location_de_arm, ghcr.io/viamrobot...
+			jobIds.arm = job.GetID()
+			errors.arm = true
+
+		// New RDK matchers
+		case repo == "rdk" && strings.Contains(job.GetName(), "linux-amd64"):
+			// JobName e.g: test / linux-amd64 Go Unit Tests
+			jobIds.amd = job.GetID()
+			errors.amd = true
+		case repo == "rdk" && strings.Contains(job.GetName(), "linux-arm64"):
+			// JobName e.g: test / linux-arm64 Go Unit Tests
 			jobIds.arm = job.GetID()
 			errors.arm = true
 		case repo == "goutils":
