@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/go-github/v53/github"
 	"github.com/viamrobotics/bfserver/service"
 	"github.com/viamrobotics/bfserver/util"
 )
@@ -229,7 +228,7 @@ func analyze() {
 	args := util.ParseProgramArgs()
 
 	ctx := context.Background()
-	client := github.NewTokenClient(ctx, args.GithubToken)
+	client := args.GetGithubClient()
 
 	// Example url: https://github.com/viamrobotics/rdk/actions/runs/5859328480/job/15885094207
 	runJobRe := regexp.MustCompile(`/([^/]*?)/actions/runs/(\d+)/job/(\d+)`)

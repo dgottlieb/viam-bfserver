@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/google/go-github/v53/github"
+	"github.com/google/go-github/v61/github"
 )
 
 func TestJira(t *testing.T) {

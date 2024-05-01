@@ -15,7 +15,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/google/go-github/v53/github"
+	"github.com/google/go-github/v61/github"
 	"github.com/viamrobotics/bfserver/util"
 )
 

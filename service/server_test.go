@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/google/go-github/v53/github"
+	"github.com/google/go-github/v61/github"
 )
 
 var githubToken string

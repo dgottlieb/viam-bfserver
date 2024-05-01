@@ -2,13 +2,13 @@ package util
 
 import (
 	"bufio"
-	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
 	"github.com/andygrunwald/go-jira"
-	"github.com/google/go-github/v53/github"
+	"github.com/google/go-github/v61/github"
 )
 
 // Global Debug
@@ -61,8 +61,39 @@ func (arg *Arg) GetJiraClient() *jira.Client {
 	return jiraClient
 }
 
+type removeAuthOnRedirectTransport struct {
+	IsRedirect bool
+}
+
+func (trans *removeAuthOnRedirectTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if trans.IsRedirect {
+		r.Header.Del("Authorization")
+		trans.IsRedirect = false
+	}
+	// bytes, _ := httputil.DumpRequestOut(r, true)
+
+	resp, err := http.DefaultTransport.RoundTrip(r)
+	// err is returned after dumping the response
+
+	// respBytes, _ := httputil.DumpResponse(resp, true)
+	// bytes = append(bytes, respBytes...)
+
+	// fmt.Printf("%s\n", bytes)
+
+	return resp, err
+}
+
 func (arg *Arg) GetGithubClient() *github.Client {
-	return github.NewTokenClient(context.Background(), arg.GithubToken)
+	trans := &removeAuthOnRedirectTransport{}
+	httpClient := &http.Client{
+		Transport: trans,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			trans.IsRedirect = true
+			return nil
+		},
+	}
+
+	return github.NewClient(httpClient).WithAuthToken(arg.GithubToken)
 }
 
 func ParseProgramArgs() *Arg {
