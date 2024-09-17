@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/andygrunwald/go-jira"
 	"github.com/viamrobotics/bfserver/util"
@@ -15,11 +16,20 @@ func GetSummaryForFailure(runFailure Failure, fqTest FQTest) (string, error) {
 		return fmt.Sprintf("Test Timeout: %v", fqTest), nil
 	} else if datarace := artifacts.Dataraces[fqTest]; datarace != nil {
 		return fmt.Sprintf("Test Datarace: %v", fqTest), nil
+	} else if runtimeError := artifacts.RuntimeErrors[fqTest]; runtimeError != nil {
+		return fmt.Sprintf("Test RuntimeError: %v", fqTest), nil
 	} else {
 		if util.GDebug {
-			fmt.Println("Failure not found")
-			for key := range artifacts.Dataraces {
-				fmt.Printf("DataraceKey: `%s`\n", key)
+			fmt.Println("Failure not found:", fqTest)
+			for failureFQTest := range artifacts.Dataraces {
+				fmt.Printf("DataraceKey: `%s`\n", failureFQTest)
+			}
+			for failureFQTest := range artifacts.RuntimeErrors {
+				fmt.Printf("RuntimeErrorKey: `%s`\n", failureFQTest)
+				if strings.HasPrefix(string(fqTest), string(failureFQTest)) {
+					fmt.Println("  Match")
+					return fmt.Sprintf("Test RuntimeError: %v", fqTest), nil
+				}
 			}
 		}
 

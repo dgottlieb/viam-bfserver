@@ -139,10 +139,11 @@ func FindFailingRuns(ctx context.Context, client *github.Client, startDate, endD
 }
 
 type Output struct {
-	Assertions map[FQTest][]AssertionFailure
-	Dataraces  map[FQTest]*DataraceFailure
-	Timeouts   map[FQTest]*TimeoutFailure
-	Logs       map[FQTest][]string
+	Assertions    map[FQTest][]AssertionFailure
+	Dataraces     map[FQTest]*DataraceFailure
+	RuntimeErrors map[FQTest]*RuntimeFailure
+	Timeouts      map[FQTest]*TimeoutFailure
+	Logs          map[FQTest][]string
 
 	PackageFailures []TestLogLine
 	TestFailures    []FQTest
@@ -153,6 +154,7 @@ func (output *Output) IsSuccess() bool {
 		len(output.Dataraces) +
 		len(output.Timeouts) +
 		len(output.PackageFailures) +
+		len(output.RuntimeErrors) +
 		len(output.TestFailures)) == 0
 }
 
@@ -190,6 +192,17 @@ func (output Output) PrettyPrint(indent string) {
 		}
 	}
 
+	for pkg, runtimeError := range output.RuntimeErrors {
+		fmt.Println("Runtime Error:", pkg)
+		for _, line := range runtimeError.LogLines {
+			fmt.Printf("%v%v", indent, line)
+		}
+
+		for _, logLine := range output.Logs[pkg] {
+			fmt.Println(logLine)
+		}
+	}
+
 	for _, packageFailure := range output.PackageFailures {
 		fmt.Println("Package Error:", packageFailure.ToPackageFailureString())
 	}
@@ -212,6 +225,10 @@ func (output Output) ThingsThatFailed(indent string, failure Failure) {
 		fmt.Printf("%sDatarace: %v\n", indent, test)
 	}
 
+	for _, test := range output.RuntimeErrors {
+		fmt.Printf("%sRuntime Error: %v\n", indent, test)
+	}
+
 	fmt.Println("Debug")
 	for _, test := range output.TestFailures {
 		fmt.Println(test)
@@ -220,10 +237,11 @@ func (output Output) ThingsThatFailed(indent string, failure Failure) {
 
 func NewTestSummary() *Output {
 	return &Output{
-		Assertions: make(map[FQTest][]AssertionFailure),
-		Dataraces:  make(map[FQTest]*DataraceFailure),
-		Timeouts:   make(map[FQTest]*TimeoutFailure),
-		Logs:       make(map[FQTest][]string),
+		Assertions:    make(map[FQTest][]AssertionFailure),
+		Dataraces:     make(map[FQTest]*DataraceFailure),
+		RuntimeErrors: make(map[FQTest]*RuntimeFailure),
+		Timeouts:      make(map[FQTest]*TimeoutFailure),
+		Logs:          make(map[FQTest][]string),
 	}
 }
 
@@ -273,6 +291,11 @@ func (failure AssertionFailure) GetAssertionCodeLinkWithText(linkText string, ru
 }
 
 type DataraceFailure struct {
+	Package  string
+	LogLines []string
+}
+
+type RuntimeFailure struct {
 	Package  string
 	LogLines []string
 }
@@ -415,9 +438,26 @@ func parseFailures(ctx context.Context, logContents *json.Decoder) (*Output, err
 			continue
 		}
 
+		if strings.HasPrefix(doc.Output, "panic: runtime error:") {
+			if util.GDebug {
+				fmt.Println("Found runtime error. Package:", doc.Package, " FQTest:", doc.ToFQTest())
+				fmt.Println(doc.Output)
+			}
+			ret.RuntimeErrors[doc.ToFQTest()] = &RuntimeFailure{
+				Package:  doc.Package,
+				LogLines: []string{doc.Output},
+			}
+			ret.TestFailures = append(ret.TestFailures, doc.ToFQTest())
+			continue
+		}
+
 		if dataraceFailure, exists := ret.Dataraces[FQTest(doc.Package)]; exists {
 			dataraceFailure.LogLines = append(dataraceFailure.LogLines, doc.Output)
 			continue
+		}
+
+		if runtimeError, exists := ret.RuntimeErrors[FQTest(doc.Package)]; exists {
+			runtimeError.LogLines = append(runtimeError.LogLines, doc.Output)
 		}
 	}
 
@@ -446,6 +486,12 @@ func parseFailures(ctx context.Context, logContents *json.Decoder) (*Output, err
 		}
 		ret.Logs[test] = allTestLogs[test]
 	}
+	for test := range ret.RuntimeErrors {
+		if util.GDebug {
+			fmt.Println("Saving logs for runtime error failure:", test)
+		}
+		ret.Logs[test] = allTestLogs[test]
+	}
 
 	if util.GDebug {
 		fmt.Println("All failures:", ret.TestFailures)
@@ -453,7 +499,8 @@ func parseFailures(ctx context.Context, logContents *json.Decoder) (*Output, err
 			_, aExists := ret.Assertions[testFailure]
 			_, tExists := ret.Timeouts[testFailure]
 			_, dExists := ret.Dataraces[testFailure]
-			if !aExists && !tExists && !dExists {
+			_, rExists := ret.RuntimeErrors[testFailure]
+			if !aExists && !tExists && !dExists && !rExists {
 				fmt.Sprintf("Unknown test failure: %v", testFailure)
 			}
 		}

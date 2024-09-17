@@ -155,6 +155,9 @@ func CreateTicketObjectsFromFailure(runFailure Failure) []TicketPlusLogs {
 		} else if datarace := artifacts.Dataraces[fqTest]; datarace != nil {
 			summary = fmt.Sprintf("Test Datarace: %v", fqTest)
 			assertionMsg = datarace.LogLines[0]
+		} else if runtimeError := artifacts.RuntimeErrors[fqTest]; runtimeError != nil {
+			summary = fmt.Sprintf("Test RuntimeError: %v", fqTest)
+			assertionMsg = runtimeError.LogLines[0]
 		} else {
 			panic("Unknown")
 		}
