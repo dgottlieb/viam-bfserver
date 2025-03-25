@@ -32,6 +32,10 @@ func getRunJobFromURL(githubRunUrl string) (int64, int64) {
 	// Example url: https://github.com/viamrobotics/rdk/actions/runs/5859328480/job/15885094207
 	runJobRe := regexp.MustCompile(`/actions/runs/(\d+)/job/(\d+)`)
 	matches := runJobRe.FindStringSubmatch(githubRunUrl)
+	if len(matches) == 0 {
+		fmt.Println("No matches parsing the run id from the link:", githubRunUrl)
+		panic(err)
+	}
 
 	matchIdx := 1
 	runId, err := strconv.ParseInt(matches[matchIdx], 10, 64)
