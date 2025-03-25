@@ -34,7 +34,7 @@ func getRunJobFromURL(githubRunUrl string) (int64, int64) {
 	matches := runJobRe.FindStringSubmatch(githubRunUrl)
 	if len(matches) == 0 {
 		fmt.Println("No matches parsing the run id from the link:", githubRunUrl)
-		panic(err)
+		panic("No matches")
 	}
 
 	matchIdx := 1
