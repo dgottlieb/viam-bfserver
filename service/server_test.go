@@ -21,7 +21,8 @@ func TestGetFailingTestsForRun(t *testing.T) {
 	t.Skip()
 	ctx := context.Background()
 	client := github.NewTokenClient(ctx, githubToken)
-	failures, err := GithubRunToFailedTests(ctx, client, 5717936462, 0)
+	failures, err := GithubRunToFailedTests(ctx, client, "viamrobotics/rdk", // not 100% on the string here
+		5717936462, 0)
 	fmt.Println("Rate:", lastResponse.Rate)
 	if err != nil {
 		panic(err)
@@ -58,7 +59,8 @@ func TestRunReport(t *testing.T) {
 
 	for _, failedRun := range failedRuns {
 		// Get logs for run and parse failures
-		testFailures, err := GithubRunToFailedTests(ctx, client, failedRun.GetID(), 0)
+		testFailures, err := GithubRunToFailedTests(ctx, client, "viamrobotics/rdk", // not 100% on the string here
+			failedRun.GetID(), 0)
 		if err != nil {
 			fmt.Println("Err:", err)
 			continue
@@ -102,7 +104,7 @@ func zipFileToJsonDecoder(reader *zip.ReadCloser) *json.Decoder {
 }
 
 func TestCaptureContext(t *testing.T) {
-	t.Skip()
+	// t.Skip()
 
 	var outputs *Output
 	var contextTestFile *zip.ReadCloser
@@ -110,9 +112,10 @@ func TestCaptureContext(t *testing.T) {
 	ctx := context.Background()
 
 	for _, filename := range []string{
-		"./testdata/failure_context_test_logs.json.zip",
-		"./testdata/timeout_context_test_logs.json.zip",
-		"./testdata/datarace_context_test_logs.json.zip",
+		// "./testdata/failure_context_test_logs.json.zip",
+		// "./testdata/timeout_context_test_logs.json.zip",
+		// "./testdata/datarace_context_test_logs.json.zip",
+		"./testdata/gotestsum-update-logs.zip",
 	} {
 		contextTestFile, err = zip.OpenReader(filename)
 		if err != nil {

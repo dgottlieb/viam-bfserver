@@ -161,7 +161,9 @@ func (output *Output) IsSuccess() bool {
 
 func (output Output) PrettyPrint(indent string) {
 	for _, testFailure := range output.TestFailures {
-		fmt.Println("Test Error:", testFailure)
+		fmt.Println("Test Error:", testFailure,
+			"Num Assertion Errors:", len(output.Assertions[testFailure]),
+			"Num Logs:", len(output.Logs[testFailure]))
 		for _, assertion := range output.Assertions[testFailure] {
 			fmt.Println(assertion.ToPrettyString(indent))
 		}
