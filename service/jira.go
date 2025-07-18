@@ -28,26 +28,26 @@ func truncate(logs []string, maxSize int) string {
 	return strings.Join(logs, "\n")
 }
 
-func getRunJobFromURL(githubRunUrl string) (int64, int64) {
+func getRunJobFromURL(githubJobUrl string) (int64, int64) {
 	// Example url: https://github.com/viamrobotics/rdk/actions/runs/5859328480/job/15885094207
 	runJobRe := regexp.MustCompile(`/actions/runs/(\d+)/job/(\d+)`)
-	matches := runJobRe.FindStringSubmatch(githubRunUrl)
+	matches := runJobRe.FindStringSubmatch(githubJobUrl)
 	if len(matches) == 0 {
-		fmt.Println("No matches parsing the run id from the link:", githubRunUrl)
+		fmt.Println("No matches parsing the run id from the link:", githubJobUrl)
 		panic("No matches")
 	}
 
 	matchIdx := 1
 	runId, err := strconv.ParseInt(matches[matchIdx], 10, 64)
 	if err != nil {
-		fmt.Println("Error parsing the run id from the link:", githubRunUrl)
+		fmt.Println("Error parsing the run id from the link:", githubJobUrl)
 		panic(err)
 	}
 
 	matchIdx++
 	jobId, err := strconv.ParseInt(matches[matchIdx], 10, 64)
 	if err != nil {
-		fmt.Println("Error parsing the job id from the link:", githubRunUrl)
+		fmt.Println("Error parsing the job id from the link:", githubJobUrl)
 		panic(err)
 	}
 
@@ -111,7 +111,7 @@ func PushTickets(newTickets []TicketPlusLogs, existingTickets []jira.Issue, gith
 		}
 		ticket.Key = filed.Key
 
-		runId, jobId := getRunJobFromURL(githubRunUrl)
+		runId, jobId := getRunJobFromURL(githubJobUrl)
 		_, resp, err = jiraClient.Issue.PostAttachment(filed.Key, strings.NewReader(strings.Join(logs, "\n")), fmt.Sprintf("logs.%d.%d", runId, jobId))
 		if err != nil {
 			fmt.Println("Header:", resp.Header)
