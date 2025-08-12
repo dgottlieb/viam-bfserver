@@ -200,7 +200,9 @@ func CreateTicketObjectsFromFailure(runFailure Failure) []TicketPlusLogs {
 				Unknowns: tcontainer.MarshalMap(map[string]interface{}{
 					// Team
 					"customfield_10074": []map[string]string{
-						map[string]string{"value": "Default"},
+						// map[string]string{"value": "Default"},
+						// Tenzing: fyi im replacing the team "Default" to "Uknown"[sic] in JIRA
+						map[string]string{"value": "Unknown"},
 					},
 				}),
 			},
