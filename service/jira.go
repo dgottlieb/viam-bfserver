@@ -227,10 +227,11 @@ func GetOpenFlakeyFailureTickets(jiraUsername, jiraToken string) []jira.Issue {
 		panic(err)
 	}
 
-	ret, _, err := jiraClient.Issue.Search(filter.Jql, &jira.SearchOptions{
-		StartAt:    0,
-		MaxResults: 1000,
-		Expand:     "",
+	ret, _, err := jiraClient.Issue.SearchV2JQL(filter.Jql, &jira.SearchOptionsV2{
+		NextPageToken: "",
+		MaxResults:    1000,
+		Expand:        "",
+		Fields:        []string{"*all"},
 	})
 	if err != nil {
 		panic(err)
