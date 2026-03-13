@@ -337,7 +337,7 @@ func MustAtoi(digits string) int {
 	return ret
 }
 
-func parseFailures(ctx context.Context, logContents *json.Decoder) (*Output, error) {
+func ParseFailures(ctx context.Context, logContents *json.Decoder) (*Output, error) {
 	ret := NewTestSummary()
 	allTestLogs := make(map[FQTest][]string)
 
@@ -379,6 +379,24 @@ func parseFailures(ctx context.Context, logContents *json.Decoder) (*Output, err
 			if strings.Contains(doc.Test, "TestSabertooth") {
 				continue
 			}
+
+			if strings.Contains(doc.Output, "to NOT be nil (but it was)!") {
+				if util.GDebug {
+					fmt.Printf("Found expected + implied actual. Test: %q Output: %q\n", doc.ToFQTest(), doc.Output)
+				}
+
+				// No `Actual:` line is to follow. Complete the assertion failure.
+				ret.Assertions[doc.ToFQTest()] = append(ret.Assertions[doc.ToFQTest()], AssertionFailure{
+					Package:  doc.Package,
+					File:     matches[1],
+					Line:     MustAtoi(matches[2]),
+					Expected: matches[3],
+					Actual:   "nil",
+				})
+				ret.TestFailures = append(ret.TestFailures, doc.ToFQTest())
+				continue
+			}
+
 			if util.GDebug {
 				fmt.Printf("Found `expected`: %v\n  Adding half-assertion for: `%v`\n",
 					strings.TrimSpace(doc.Output),
@@ -583,6 +601,7 @@ func fetchAndParseFailures(ctx context.Context, client *github.Client, zippedLog
 	}
 
 	if util.GDebug {
+		fmt.Println("Debugging on, wrote test log to file: gotest_logs.json.zip")
 		os.WriteFile("gotest_logs.json.zip", zippedBytes.Bytes(), 0644)
 	}
 
@@ -595,13 +614,17 @@ func fetchAndParseFailures(ctx context.Context, client *github.Client, zippedLog
 	}
 
 	testLogFile := archive.File[0]
+	if util.GDebug {
+		fmt.Println("Parsing from file:", testLogFile.Name)
+	}
+
 	logContents, err := testLogFile.Open()
 	if err != nil {
 		return nil, err
 	}
 	defer logContents.Close()
 
-	return parseFailures(ctx, json.NewDecoder(logContents))
+	return ParseFailures(ctx, json.NewDecoder(logContents))
 
 	// ret := []TestLogLine{}
 	// // Example log lines to capture:
@@ -665,12 +688,16 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 	var jobIds struct {
 		amd     int64
 		arm     int64
+		mac     int64
+		windows int64
 		goutils int64
 		app     int64
 	}
 	var errors struct {
 		amd     bool
 		arm     bool
+		mac     bool
+		windows bool
 		goutils bool
 		app     bool
 	}
@@ -684,11 +711,16 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 			fmt.Printf("Job: %v Repo: %v Conclusion: %v\n", job.GetName(), repo, job.GetConclusion())
 		}
 
-		if repo == "rdk" && !strings.Contains(job.GetName(), "Go Unit Test") && !strings.Contains(job.GetName(), "Go Coverage Test") {
-			if util.GDebug {
-				fmt.Println(" Skipping because rdk and not test job.")
+		if repo == "rdk" {
+			if !strings.Contains(job.GetName(), "Go Unit Test") &&
+				!strings.Contains(job.GetName(), "Go Coverage Test") &&
+				!strings.Contains(job.GetName(), "test / macOS") &&
+				!strings.Contains(job.GetName(), "test / windows") {
+				if util.GDebug {
+					fmt.Println(" Skipping because rdk and not test job.")
+				}
+				continue
 			}
-			continue
 		}
 
 		if repo == "goutils" && !strings.Contains(job.GetName(), "Build and Test") {
@@ -737,6 +769,12 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 			// JobName e.g: test / linux-arm64 Go Unit Tests
 			jobIds.arm = job.GetID()
 			errors.arm = true
+		case repo == "rdk" && strings.Contains(job.GetName(), "macOS"):
+			jobIds.mac = job.GetID()
+			errors.mac = true
+		case repo == "rdk" && strings.Contains(job.GetName(), "windows"):
+			jobIds.windows = job.GetID()
+			errors.windows = true
 		case repo == "goutils":
 			jobIds.goutils = job.GetID()
 			errors.goutils = true
@@ -757,6 +795,8 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 	var logs struct {
 		amd     *github.Artifact
 		arm     *github.Artifact
+		mac     *github.Artifact
+		windows *github.Artifact
 		goutils *github.Artifact
 		app     *github.Artifact
 	}
@@ -766,6 +806,10 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 			logs.amd = artifact
 		case repo == "rdk" && artifact.GetName() == "test-linux-arm64.json":
 			logs.arm = artifact
+		case repo == "rdk" && artifact.GetName() == "test-macos-arm64.json":
+			logs.mac = artifact
+		case repo == "rdk" && artifact.GetName() == "test-windows-amd64.json":
+			logs.windows = artifact
 		case repo == "goutils" && artifact.GetName() == "test.json":
 			logs.goutils = artifact
 		case repo == "app" && artifact.GetName() == "test.json":
@@ -808,6 +852,40 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 			// See above
 			jobLink := fmt.Sprintf("https://github.com/viamrobotics/%v/actions/runs/%v/job/%v", repo, runId, jobIds.arm)
 			ret = append(ret, Failure{"arm64", jobLink, gitHash, output, workflowRun})
+		}
+		ind.Close()
+	}
+
+	if errors.mac == true && logs.mac != nil {
+		if util.GDebug {
+			fmt.Println("\nRDK Mac failures")
+		}
+		ind := NewIndenter()
+		output, err := fetchAndParseFailures(ctx, client, logs.mac)
+		if err != nil {
+			return nil, err
+		}
+		if !output.IsSuccess() {
+			// See above
+			jobLink := fmt.Sprintf("https://github.com/viamrobotics/%v/actions/runs/%v/job/%v", repo, runId, jobIds.mac)
+			ret = append(ret, Failure{"mac", jobLink, gitHash, output, workflowRun})
+		}
+		ind.Close()
+	}
+
+	if errors.windows == true && logs.windows != nil {
+		if util.GDebug {
+			fmt.Println("\nRDK Mac failures")
+		}
+		ind := NewIndenter()
+		output, err := fetchAndParseFailures(ctx, client, logs.windows)
+		if err != nil {
+			return nil, err
+		}
+		if !output.IsSuccess() {
+			// See above
+			jobLink := fmt.Sprintf("https://github.com/viamrobotics/%v/actions/runs/%v/job/%v", repo, runId, jobIds.windows)
+			ret = append(ret, Failure{"windows", jobLink, gitHash, output, workflowRun})
 		}
 		ind.Close()
 	}

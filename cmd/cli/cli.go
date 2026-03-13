@@ -1,8 +1,10 @@
 package main
 
 import (
+	"archive/zip"
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -17,11 +19,13 @@ import (
 func main() {
 	fmt.Println("Run started:", time.Now())
 	if len(os.Args) == 1 {
-		fmt.Println("Usage:\n\tbfserver discover\n\tbfserver analyze")
+		fmt.Println("Usage:\n\tbfserver discover\n\tbfserver analyze\n\tbfserver file <filename>")
 		return
 	}
 
 	switch os.Args[1] {
+	case "file":
+		file()
 	case "analyze":
 		analyze()
 	case "discover":
@@ -35,6 +39,29 @@ func main() {
 	}
 
 	fmt.Println("Github Rate:", service.GithubRate())
+}
+
+func file() {
+	util.GDebug = true
+	filename := os.Args[2]
+	archive, err := zip.OpenReader(filename)
+	if err != nil {
+		panic(err)
+	}
+	if len(archive.File) == 0 {
+		panic("Archive has no files.")
+	}
+
+	testLogFile := archive.File[0]
+	fmt.Println("Parsing from file:", testLogFile.Name)
+
+	logContents, err := testLogFile.Open()
+	if err != nil {
+		panic(err)
+	}
+	defer logContents.Close()
+
+	service.ParseFailures(context.Background(), json.NewDecoder(logContents))
 }
 
 func discover() {

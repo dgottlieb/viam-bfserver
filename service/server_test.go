@@ -123,7 +123,7 @@ func TestCaptureContext(t *testing.T) {
 		}
 		defer contextTestFile.Close()
 
-		outputs, _ = parseFailures(ctx, zipFileToJsonDecoder(contextTestFile))
+		outputs, _ = ParseFailures(ctx, zipFileToJsonDecoder(contextTestFile))
 		outputs.PrettyPrint("\t")
 	}
 }
