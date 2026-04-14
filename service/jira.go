@@ -134,6 +134,7 @@ func CreateTicketObjectsFromFailure(runFailure Failure) []TicketPlusLogs {
 	ret := make([]TicketPlusLogs, 0)
 
 	artifacts := runFailure.Output
+	fmt.Println("Num test failures:", len(artifacts.TestFailures))
 	for _, fqTest := range artifacts.TestFailures {
 		fmt.Println("Test:", fqTest, "NumLogs:", len(artifacts.Logs[fqTest]))
 		if len(artifacts.Logs[fqTest]) == 0 {
@@ -163,7 +164,19 @@ func CreateTicketObjectsFromFailure(runFailure Failure) []TicketPlusLogs {
 			summary = fmt.Sprintf("Test RuntimeError: %v", fqTest)
 			assertionMsg = runtimeError.LogLines[0]
 		} else {
-			panic("Unknown")
+			// Tests that bypass `test.That` and instead use `t.Fatal` won't have any discerning
+			// failure message in the test logs. The failing log line will show up in synopsis of
+			// failed/skipped tests, but that doesn't seem to be part of the JSON output. Synopsis
+			// observation:
+			//
+			// 2026-04-14T15:33:10.1404020Z === [31mFailed[0m
+			// 2026-04-14T15:33:10.1404370Z === [31mFAIL[0m: data TestSuccessfulWrite/Sleep_based_binary_writer. (1.00s)
+			// 2026-04-14T15:33:10.1404810Z     collector_test.go:163: timed out waiting for data to be written
+			// 2026-04-14T15:33:10.1405000Z
+			//
+			// We'll just file a ticket here without a known failure line.
+			summary = fmt.Sprintf("Test failure: %v", fqTest)
+			assertionMsg = "Couldn't identify failure line (`t.Fatalf` usage?)"
 		}
 
 		var project string

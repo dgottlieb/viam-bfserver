@@ -522,7 +522,8 @@ func ParseFailures(ctx context.Context, logContents *json.Decoder) (*Output, err
 			_, dExists := ret.Dataraces[testFailure]
 			_, rExists := ret.RuntimeErrors[testFailure]
 			if !aExists && !tExists && !dExists && !rExists {
-				fmt.Sprintf("Unknown test failure: %v", testFailure)
+				fmt.Println("Unknown test failure:", testFailure)
+				ret.Logs[testFailure] = allTestLogs[testFailure]
 			}
 		}
 	}
