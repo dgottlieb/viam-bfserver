@@ -744,7 +744,7 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 			continue
 		}
 		if jobId != 0 && job.GetID() != jobId {
-			fmt.Printf("  Skipping because not jobid. Asked: %v Received: %v\n", jobId, job.GetID())
+			fmt.Printf("  Skipping because not jobid. Name: %v Asked: %v Received: %v\n", job.GetName(), jobId, job.GetID())
 			continue
 		}
 
