@@ -707,6 +707,8 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 	// Job names of interest:
 	//   test / Build and Test (buildjet-8vcpu-ubuntu-2204, ghcr.io/viamrobotics/canon:amd64-cache, linux/amd64, ...
 	//   test / Build and Test (buildjet-8vcpu-ubuntu-2204-arm, ghcr.io/viamrobotics/canon:arm64-cache, linux/arm...
+	//   test / macOS
+	//   test / windows
 	for _, job := range jobs.Jobs {
 		if util.GDebug {
 			fmt.Printf("Job: %v Repo: %v Conclusion: %v\n", job.GetName(), repo, job.GetConclusion())
@@ -771,9 +773,11 @@ func GithubRunToFailedTests(ctx context.Context, client *github.Client, repo str
 			jobIds.arm = job.GetID()
 			errors.arm = true
 		case repo == "rdk" && strings.Contains(job.GetName(), "macOS"):
+			// JobName e.g: test / macOS
 			jobIds.mac = job.GetID()
 			errors.mac = true
 		case repo == "rdk" && strings.Contains(job.GetName(), "windows"):
+			// JobName e.g: test / windows
 			jobIds.windows = job.GetID()
 			errors.windows = true
 		case repo == "goutils":
